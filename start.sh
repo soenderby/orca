@@ -242,7 +242,7 @@ COUNT="${COUNT:-2}"
 check_prerequisites
 
 ROOT="$(git rev-parse --show-toplevel)"
-PROMPT_TEMPLATE="${PROMPT_TEMPLATE:-${ROOT}/scripts/orca/AGENT_PROMPT.md}"
+PROMPT_TEMPLATE="${PROMPT_TEMPLATE:-${ROOT}/AGENT_PROMPT.md}"
 
 if ! [[ "${COUNT}" =~ ^[1-9][0-9]*$ ]]; then
   echo "[start] count must be a positive integer: ${COUNT}" >&2

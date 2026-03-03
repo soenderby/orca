@@ -26,7 +26,7 @@ Complete exactly one issue in this run, or report `no_work`, then return control
    - `bd ready --limit 20`
    - `bd show <id>`
    - `bd dep list <id>`
-   - `scripts/orca/check-closed-deps-merged.sh <id>` (must pass before claim; if it fails, pick another issue or mark blocked)
+   - `./check-closed-deps-merged.sh <id>` (must pass before claim; if it fails, pick another issue or mark blocked)
 3. Claim atomically before coding:
    - `bd update <id> --claim`
 4. Implement the issue end-to-end:

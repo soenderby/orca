@@ -21,15 +21,15 @@ Research/reference material is under `docs/research/`.
 
 Roadmap migration target:
 
-1. mandatory coordination protocol in `scripts/orca/AGENTS.md`
-2. optional operational guidance in `scripts/orca/knowledge/`
+1. mandatory coordination protocol in `AGENTS.md`
+2. optional operational guidance in `knowledge/`
 
 M0 adds strict run-summary schema enforcement and metrics version attribution; it does not yet switch prompt files.
 
 ## Entrypoints
 
 - Preferred: `./bb orca <command> [args]`
-- Direct: `scripts/orca/orca.sh <command> [args]`
+- Direct: `./orca.sh <command> [args]`
 
 ## Commands
 
@@ -40,10 +40,11 @@ M0 adds strict run-summary schema enforcement and metrics version attribution; i
 - `with-lock [--scope NAME] [--timeout SECONDS] -- <command> [args...]`
 - `check-closed-deps-merged <issue-id> [target-ref]`
 
-Helper script (direct invocation):
+Helper scripts (direct invocation):
 
-- `scripts/orca/with-lock.sh [--scope NAME] [--timeout SECONDS] -- <command> [args...]`
-- `scripts/orca/check-closed-deps-merged.sh <issue-id> [target-ref]`
+- `./with-lock.sh [--scope NAME] [--timeout SECONDS] -- <command> [args...]`
+- `./check-closed-deps-merged.sh <issue-id> [target-ref]`
+- `./check-runtime-boundaries.sh` (assert runtime scripts do not depend on planning/research docs or stale `scripts/orca/` paths)
 
 ## TODO
 
@@ -75,6 +76,7 @@ Orca is a `tmux`-backed multi-agent loop with one persistent git worktree per ag
 - `agent-loop.sh`: per-agent run loop that executes the prompt, captures run artifacts, and records summary/metrics
 - `with-lock.sh`: scoped lock wrapper for commands that must serialize shared git integration operations
 - `check-closed-deps-merged.sh`: guard that verifies closed blocking dependencies for an issue are represented on integration history before claim
+- `check-runtime-boundaries.sh`: verifies runtime script isolation from planning/research docs and stale path prefixes
 - `status.sh`: displays sessions, worktrees, queue snapshots, logs, and metrics
 - `stop.sh`: stops active agent sessions and Dolt SQL server container
 - `AGENT_PROMPT.md`: agent instruction contract used by `agent-loop.sh`
@@ -281,12 +283,12 @@ Primary repo and lock helper are injected to agents as:
 - `ORCA_TIMING_METRICS`: emit metrics rows (`1` default)
 - `ORCA_COMPACT_SUMMARY`: emit markdown summaries (`1` default)
 - `SESSION_PREFIX`: tmux session prefix (`bb-agent` default)
-- `PROMPT_TEMPLATE`: prompt template path (`scripts/orca/AGENT_PROMPT.md` default)
+- `PROMPT_TEMPLATE`: prompt template path (`<repo-root>/AGENT_PROMPT.md` default)
 - `AGENT_COMMAND`: full command for each run
 - `ORCA_LOCK_SCOPE`: default lock scope for `with-lock.sh` (`merge`)
 - `ORCA_LOCK_TIMEOUT_SECONDS`: lock timeout seconds (default `120`)
 - `ORCA_PRIMARY_REPO`: primary repository path used for lock-guarded merge/push operations (default repo root)
-- `ORCA_WITH_LOCK_PATH`: absolute path to lock helper passed to agents (default `<repo-root>/scripts/orca/with-lock.sh`)
+- `ORCA_WITH_LOCK_PATH`: absolute path to lock helper passed to agents (default `<repo-root>/with-lock.sh`)
 - `DOLT_CONTAINER_NAME`: Dolt SQL server container name (default `bookbinder-dolt`)
 - `DOLT_IMAGE`: Dolt container image (default `dolthub/dolt:latest`)
 - `DOLT_BIND_HOST`: host interface for container port bind (default `127.0.0.1`)

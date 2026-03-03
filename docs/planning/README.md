@@ -8,6 +8,7 @@ They are intentionally separated from runtime docs so implementation plans do no
 - `orca-redesign.md` — redesign proposal and design decisions
 - `orca-roadmap.md` — milestone-based implementation roadmap
 - `orca-goals-and-considerations.md` — broader goals, principles, and layer model
+- `pi-migration-plan.md` — staged migration plan from direct Codex CLI to Pi (minimal cutover + expansion options)
 
 ## Status Guidance
 

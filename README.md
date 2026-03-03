@@ -6,11 +6,14 @@ Orca uses transport-focused loop orchestration while agents own task policy and 
 
 ## Documentation
 
-Orca intentionally keeps documentation to three markdown files in this directory:
+Operational documentation for current behavior stays in this directory:
 
 1. `README.md` (this file): technical reference and command/runtime details
 2. `AGENT_PROMPT.md`: single consolidated instruction contract for loop agents
 3. `OPERATOR_GUIDE.md`: human operator guide, including intent and design principles
+
+Planning/redesign material is intentionally separated under `docs/planning/`.
+Research/reference material is under `docs/research/`.
 
 ## Prompt Migration Note
 

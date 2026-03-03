@@ -42,6 +42,90 @@ Recommended sequence:
 
 This keeps migration reversible and limits blast radius.
 
+### 3.1 Strategic relationship to the redesign
+
+This migration plan is tactical. It changes the runtime path used by the existing loop.
+
+The redesign documents are strategic/architectural. They define longer-lived boundaries and principles: harness vs. agent responsibilities, invariant enforcement, optional-vs-mandatory context, and artifact/observability shape.
+
+Tactical plans should serve those strategic goals, but they are not a substitute for them.
+
+Because the operating environment is non-static (model/runtime behavior shifts, queue/task shape changes, operator workflow evolves), tactical execution can surface new information that invalidates assumptions. This plan should therefore be treated as revisable via an explicit feedback loop:
+
+1. define hypothesis and success/failure criteria,
+2. run canary,
+3. compare against baseline metrics,
+4. decide (promote/hold/rollback),
+5. update plan and, if needed, strategic docs.
+
+### 3.2 Thin runtime adapter layer (draft, non-final)
+
+Status: proposal for discussion; contract details are intentionally non-final.
+
+Goal: make runtime substitution (`codex`, `pi`, future variants) practical without turning Orca into a generic agent framework.
+
+Design constraints:
+- narrow seam: runtime invocation + artifact normalization only,
+- no policy logic in adapter (claiming/merge/invariant policy stays in harness),
+- rollback must remain fast (single switch),
+- missing capability states must be explicit (`missing`/`parse_error`), never silently ignored.
+
+Adapter responsibilities:
+1. Construct runtime command from selected runtime/profile and shared run inputs.
+2. Execute the runtime with the rendered prompt.
+3. Normalize core outputs for the loop:
+   - final assistant message artifact,
+   - usage/token metrics artifact,
+   - optional structured events artifact.
+4. Expose capability metadata so harness logic can select compatible behavior.
+
+Proposed control-plane contract (draft):
+- `AGENT_RUNTIME` — selected runtime (`codex|pi`) (default remains project-defined).
+- `AGENT_RUNTIME_PROFILE` — runtime profile (`codex-baseline|pi-minimal|pi-json`, extensible).
+- `AGENT_RUNTIME_ADAPTER` — optional adapter entrypoint override (path/command).
+- `AGENT_ALLOW_DIRECT_COMMAND` — `0|1`, default `0`; enables temporary adapter bypass for emergency rollback/debug.
+- `AGENT_COMMAND` — legacy direct command escape hatch; honored only when `AGENT_ALLOW_DIRECT_COMMAND=1`.
+
+Precedence rule (draft):
+1. if `AGENT_ALLOW_DIRECT_COMMAND=1` and `AGENT_COMMAND` is set, run direct-command mode,
+2. otherwise use adapter mode (`AGENT_RUNTIME` + `AGENT_RUNTIME_PROFILE` + optional `AGENT_RUNTIME_ADAPTER`).
+
+Operational note (draft):
+- Record execution mode in metrics (`adapter` vs `direct_command`) so comparisons remain attributable.
+
+Proposed run contract (draft):
+- Harness passes run inputs via env/args (prompt path, model, reasoning level, output paths).
+- Adapter writes a single normalized result JSON artifact consumed by `agent-loop.sh`.
+- Result artifact must include `schema_version` so the parser can evolve safely.
+- Harness validates required fields and treats unknown/incompatible schema versions as explicit parse failures (never silent fallback).
+
+Example normalized result artifact:
+
+```json
+{
+  "schema_version": "orca.runtime-result.v1",
+  "mode": "adapter",
+  "runtime": "pi",
+  "profile": "pi-minimal",
+  "exit_code": 0,
+  "final_message": {"status": "ok", "path": ".../last-message.md"},
+  "usage": {"status": "missing", "input_tokens": null, "output_tokens": null, "total_tokens": null},
+  "events": {"status": "missing", "path": null}
+}
+```
+
+Proposed capability contract (draft):
+- Adapter supports a lightweight `describe` operation returning capability flags, e.g.:
+  - `supports_reasoning_level`
+  - `supports_final_message_artifact`
+  - `supports_structured_events`
+  - `supports_usage_metrics`
+
+Non-goals:
+- not a provider-agnostic orchestration framework,
+- not prompt-chain management,
+- not moving harness correctness invariants into adapter/plugin code.
+
 ---
 
 ## 4) Minimal Initial Migration Plan (Low-Risk)
@@ -53,7 +137,7 @@ Goal: establish objective before/after comparison.
 Actions:
 1. Freeze and record current baseline metrics for a representative period (success rate, blocked rate, median run duration, operator intervention count).
 2. Define explicit rollback criteria before any switch.
-3. Add/confirm a single runtime switch in Orca (e.g., `AGENT_RUNTIME=codex|pi` or profile-based `AGENT_COMMAND`) so switching back is immediate.
+3. Add/confirm a single runtime switch in Orca (prefer adapter-mode `AGENT_RUNTIME` + `AGENT_RUNTIME_PROFILE`; keep direct-command override as break-glass only) so switching back is immediate.
 
 Exit criteria:
 - baseline snapshot exists,

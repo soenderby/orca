@@ -125,6 +125,12 @@ The batch farm's effectiveness is bounded by the quality of what it's given to w
 
 This means tools that help the operator create better task specifications (Layer 2 interactive agents) may deliver more value than improvements to the execution layer (Layer 1).
 
+### 7. Strategy is architectural; plans are tactical and revisable
+
+Strategic docs define architecture and durable principles. Tactical plans execute pieces of that strategy (for example, a runtime migration) with bounded scope and measurable outcomes.
+
+The environment is not static: model/runtime behavior, repository structure, and workflow pressures change over time. Tactical execution can surface information that invalidates earlier assumptions. Both plans and strategy should therefore be updateable through an explicit evidence loop: hypothesis -> canary -> measurement -> decision (promote/hold/rollback) -> document update.
+
 ---
 
 ## Open Questions

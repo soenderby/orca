@@ -12,6 +12,8 @@ The system should improve over time. Agents run into friction, discover better a
 
 Minimal and functional is not a constraint imposed on this design — it is a value the design actively upholds. Every added mechanism must justify its complexity against the cost of carrying it. The right amount of infrastructure is the minimum that makes agents reliably effective.
 
+This document is strategic/architectural, not a one-shot implementation script. Tactical plans (runtime migration, prompt split, invariant hardening, etc.) are the execution units that move the architecture forward. Because the operating environment has constant entropy and drift, those tactical plans should be treated as revisable hypotheses: run, measure, learn, and update both plans and strategy when evidence demands it.
+
 ---
 
 ## Part 1: Proposed Design

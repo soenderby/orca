@@ -58,18 +58,19 @@ Key properties:
 
 ### Layer 2: Interactive Agents (`orca ask`)
 
-On-demand, single-shot or short-lived agent sessions with purpose-specific context. Examples:
+On-demand, single-shot or short-lived agent sessions with purpose-specific context.
 
+Examples of use:
 - A critic that stress-tests an idea or plan
-- A librarian that helps find and organize information
-- A decomposer that helps break large goals into well-specified tasks
-- A reviewer that analyzes batch farm output
+- A task-spec assistant that helps turn goals into implementable constraints
+- A queue reviewer that checks priorities/dependencies
+- A knowledge curator that consolidates and cleans operational notes
 
 These are interactive, conversational, and don't need batch infrastructure. They share worktree primitives and metrics logging with Layer 1 but little else.
 
 Key properties:
 - Interactive — the operator is in the loop
-- Experimental — new agent types are added and discarded frequently
+- Experimental — capability bundles can be added/removed frequently
 - Highest rate of change of any layer
 
 ### Layer 3: Analysis (`orca inspect`)
@@ -82,6 +83,37 @@ Key properties:
 - Read-only — never modifies state
 - Value grows with accumulated data
 - Can be as simple as grep and jq, or as sophisticated as an LLM analyzing logs
+
+---
+
+## Capability Model (Reframing Roles)
+
+"Worker / inspector / librarian" is useful shorthand, but too concrete for the current stage. It implies implementation decisions (fixed roles, templates, workflow routing) that are still unsettled.
+
+For planning, use this model instead:
+
+1. **Capability** — what job is performed
+2. **Authority envelope** — what data can be read/written
+3. **Realization** — how it is invoked (prompt template, skill, freeform session, scripted helper)
+
+The first two are design commitments. The third is intentionally open.
+
+### Canonical capabilities (draft)
+
+| Capability | Primary question answered | Authority envelope | Typical realization (examples, non-binding) |
+|---|---|---|---|
+| Execution | "Can this issue be completed safely?" | Read/write code + run artifacts, constrained by coordination invariants | Batch agent loop |
+| State synthesis | "What is happening right now?" | Read-only artifacts/metrics/queue state | Interactive query, report skill |
+| Plan/queue review | "Do priorities/dependencies make sense?" | Read-only queue + notes + prior findings | Interactive analysis session |
+| Queue steering | "What should change in open work?" | Write only `open` queue items; no writes to `in_progress` items | Focused edit skill or session |
+| Knowledge curation | "What should be kept, merged, removed, or reframed?" | Read/write knowledge store only | Session, skill, or occasional maintenance run |
+| Task-spec support | "How do we make this task executable with minimal overengineering?" | Read project context; writes candidate specs/constraints, not production code | Interactive decomposition/planning assistant |
+
+### Consequences of this reframing
+
+- Keep discussing these as **capabilities with boundaries**, not permanent role architecture.
+- Validate each capability with lightweight experiments before institutionalizing it.
+- Prefer cheap realizations first (a small skill or focused prompt) over structural additions.
 
 ---
 
@@ -162,6 +194,15 @@ Potential approaches:
 
 The plan-then-execute approach is the most promising because it addresses the "pick a direction and go without checking" failure mode directly. Whether this is a harness feature (the loop enforces a planning phase) or a prompt feature (the task spec asks for a plan first) is an open design question.
 
+### How should capability realizations be selected?
+
+The desired functionality is clearer than the best implementation style. Some capabilities may be satisfied by lightweight skills. Others may need dedicated templates. A few may be better as script-level helpers.
+
+The selection criterion should be reversible learning value, not elegance:
+- Does this realization improve outcomes measurably?
+- Is the authority boundary explicit and enforced?
+- Can it be removed or replaced cheaply if wrong?
+
 ### What role does experimentation play?
 
 The operator wants to try different approaches and compare them. This does not require formal A/B testing infrastructure. It requires:
@@ -193,7 +234,7 @@ Formal experimentation infrastructure (reproducible starting states, statistical
 - Explicit design intent in task specifications as a fix for overengineering
 - Plan-then-execute workflow to catch bad directions early
 - Larger task granularity to reduce coordination overhead ratio
-- Interactive agents for task specification and information organization (Layer 2)
+- Lightweight capability realizations (small skills/prompts) before formal role architecture
 - LLM-based analysis of existing run data (Layer 3)
 
 ---
@@ -205,15 +246,15 @@ The redesign document (`orca-redesign.md`) contains valuable research and analys
 - The mandatory vs. optional context split (coordination protocol vs. operational knowledge)
 - The principle that harness invariants should be enforced mechanically
 - The knowledge base concept (though its priority is lower than task specification improvements)
-- The agent role taxonomy (reframed as Layer 2 interactive agents rather than permanent system roles)
+- The roles discussion, reframed as **capability + authority envelope** rather than permanent role architecture
 - The cross-domain insights (stigmergy, Auftragstaktik, Toyota Production System, MVCC) as mental models
 
 The following elements are deferred or deprioritized:
 
 - A/B testing infrastructure with statistical rigor — premature for current system maturity
 - Evolutionary self-modification — requires evaluation infrastructure that doesn't exist
-- Librarian as a permanent automated role — better served as an on-demand interactive agent
-- Formal knowledge base write protocol — optimize for learning speed first
+- Permanent automated role machinery — defer until lightweight capability realizations prove value
+- Formalized knowledge protocol complexity beyond what current evidence supports
 
 ---
 
@@ -223,6 +264,6 @@ Not prioritized. To be refined based on what analysis of existing run data revea
 
 1. Analyze existing run data (stdout logs from 30–50 runs) to characterize failure modes and validate the task-granularity hypothesis
 2. Define the Layer 0 primitive interface — what do all layers share?
-3. Build a minimal Layer 2 prototype — an interactive agent for task specification that carries explicit design intent
+3. Test lightweight realizations for high-value capabilities (task-spec support, knowledge curation, queue review)
 4. Formalize metrics recording with version attribution (harness version in every metrics row — low cost, high prerequisite value)
 5. Design the plan-then-execute checkpoint as either a harness or prompt feature

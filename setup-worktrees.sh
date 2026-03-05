@@ -5,6 +5,11 @@ COUNT="${1:-2}"
 ROOT="$(git rev-parse --show-toplevel)"
 origin_available=0
 
+if ! [[ "${COUNT}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "[setup] count must be a positive integer: ${COUNT}" >&2
+  exit 1
+fi
+
 mkdir -p "${ROOT}/worktrees"
 
 if git remote get-url origin >/dev/null 2>&1; then
@@ -77,19 +82,39 @@ ensure_upstream() {
   return 1
 }
 
+create_worktree_if_missing() {
+  local abs_path="$1"
+  local rel_path="$2"
+  local branch="$3"
+
+  if git worktree list --porcelain | awk '/^worktree / {print $2}' | grep -Fxq "${abs_path}"; then
+    echo "[setup] ${rel_path} already exists"
+    return 0
+  fi
+
+  if git show-ref --verify --quiet "refs/heads/${branch}"; then
+    echo "[setup] creating ${rel_path} from local branch ${branch}"
+    git worktree add "${abs_path}" "${branch}"
+    return 0
+  fi
+
+  if [[ "${origin_available}" -eq 1 ]] && git ls-remote --exit-code --heads origin "${branch}" >/dev/null 2>&1; then
+    echo "[setup] creating ${rel_path} from origin/${branch}"
+    git worktree add -b "${branch}" "${abs_path}" "origin/${branch}"
+    return 0
+  fi
+
+  echo "[setup] creating ${rel_path} (new branch: ${branch} from main)"
+  git worktree add -b "${branch}" "${abs_path}" main
+}
+
 for i in $(seq 1 "${COUNT}"); do
   name="agent-${i}"
   rel_path="worktrees/${name}"
   abs_path="${ROOT}/${rel_path}"
   branch="swarm/${name}"
 
-  if git worktree list --porcelain | awk '/^worktree / {print $2}' | grep -Fxq "${abs_path}"; then
-    echo "[setup] ${rel_path} already exists"
-  else
-    echo "[setup] creating ${rel_path} (branch: ${branch})"
-    bd worktree create "${rel_path}" --branch "${branch}"
-  fi
-
+  create_worktree_if_missing "${abs_path}" "${rel_path}" "${branch}"
   ensure_upstream "${abs_path}" "${branch}"
 done
 

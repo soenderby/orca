@@ -31,13 +31,6 @@ ORCA_TIMING_METRICS="${ORCA_TIMING_METRICS:-1}"
 ORCA_COMPACT_SUMMARY="${ORCA_COMPACT_SUMMARY:-1}"
 ORCA_LOCK_SCOPE="${ORCA_LOCK_SCOPE:-merge}"
 ORCA_LOCK_TIMEOUT_SECONDS="${ORCA_LOCK_TIMEOUT_SECONDS:-120}"
-DOLT_CONTAINER_NAME="${DOLT_CONTAINER_NAME:-bookbinder-dolt}"
-DOLT_IMAGE="${DOLT_IMAGE:-dolthub/dolt:latest}"
-DOLT_BIND_HOST="${DOLT_BIND_HOST:-127.0.0.1}"
-DOLT_BIND_PORT="${DOLT_BIND_PORT:-3307}"
-DOLT_SERVER_PORT="${DOLT_SERVER_PORT:-3306}"
-DOLT_READY_MAX_ATTEMPTS="${DOLT_READY_MAX_ATTEMPTS:-30}"
-DOLT_READY_WAIT_SECONDS="${DOLT_READY_WAIT_SECONDS:-1}"
 
 session_date_path() {
   local session_id="$1"
@@ -52,71 +45,25 @@ session_date_path() {
   date -u +%Y/%m/%d
 }
 
-ensure_dolt_server() {
-  local dolt_data_dir
-  local exists
-  local is_running
-  local attempt
+ensure_br_workspace() {
+  local doctor_output
 
-  if ! command -v docker >/dev/null 2>&1; then
-    echo "[start] missing prerequisite: docker (required for Dolt server mode)" >&2
+  if [[ ! -d "${ROOT}/.beads" ]]; then
+    echo "[start] missing .beads workspace in repo root: ${ROOT}/.beads" >&2
+    echo "[start] run: br init && br config set id.prefix orca" >&2
     exit 1
   fi
 
-  dolt_data_dir="${DOLT_DATA_DIR:-${ROOT}/.beads/dolt}"
-  if [[ ! -d "${dolt_data_dir}" ]]; then
-    echo "[start] missing Dolt data directory: ${dolt_data_dir}" >&2
-    exit 1
+  if doctor_output="$(br doctor 2>&1)"; then
+    return 0
   fi
 
-  exists="$(docker ps -a --filter "name=^${DOLT_CONTAINER_NAME}$" --format '{{.Names}}')"
-  if [[ -n "${exists}" ]]; then
-    is_running="$(docker inspect -f '{{.State.Running}}' "${DOLT_CONTAINER_NAME}" 2>/dev/null || true)"
-    if [[ "${is_running}" == "true" ]]; then
-      echo "[start] Dolt server container already running: ${DOLT_CONTAINER_NAME}"
-    else
-      echo "[start] starting Dolt server container: ${DOLT_CONTAINER_NAME}"
-      docker start "${DOLT_CONTAINER_NAME}" >/dev/null
-    fi
-  else
-    echo "[start] creating Dolt server container: ${DOLT_CONTAINER_NAME}"
-    docker run -d \
-      --name "${DOLT_CONTAINER_NAME}" \
-      -p "${DOLT_BIND_HOST}:${DOLT_BIND_PORT}:${DOLT_SERVER_PORT}" \
-      -v "${dolt_data_dir}:/var/lib/dolt" \
-      "${DOLT_IMAGE}" \
-      sql-server \
-      --host 0.0.0.0 \
-      --port "${DOLT_SERVER_PORT}" \
-      --data-dir /var/lib/dolt >/dev/null
+  echo "[start] br workspace check failed (br doctor)" >&2
+  if [[ -n "${doctor_output}" ]]; then
+    printf '%s\n' "${doctor_output}" | head -n 20 >&2
   fi
-
-  for ((attempt=1; attempt<=DOLT_READY_MAX_ATTEMPTS; attempt+=1)); do
-    if docker exec "${DOLT_CONTAINER_NAME}" dolt sql -q "SELECT 1;" >/dev/null 2>&1; then
-      if (( attempt > 1 )); then
-        echo "[start] Dolt SQL server ready after ${attempt} attempts"
-      fi
-      break
-    fi
-
-    if (( attempt == 1 )); then
-      echo "[start] waiting for Dolt SQL server readiness"
-    fi
-
-    if (( attempt == DOLT_READY_MAX_ATTEMPTS )); then
-      echo "[start] Dolt SQL server did not become ready after ${DOLT_READY_MAX_ATTEMPTS} attempts" >&2
-      echo "[start] recent Dolt container logs (${DOLT_CONTAINER_NAME}):" >&2
-      docker logs --tail 20 "${DOLT_CONTAINER_NAME}" >&2 || true
-      exit 1
-    fi
-
-    sleep "${DOLT_READY_WAIT_SECONDS}"
-  done
-
-  docker exec "${DOLT_CONTAINER_NAME}" dolt sql -q \
-    "CREATE USER IF NOT EXISTS 'root'@'%' IDENTIFIED BY ''; \
-     GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' WITH GRANT OPTION; \
-     FLUSH PRIVILEGES;" >/dev/null
+  echo "[start] fix the workspace above, then rerun start" >&2
+  exit 1
 }
 
 check_prerequisites() {
@@ -124,7 +71,7 @@ check_prerequisites() {
   local cmd
   local agent_command_bin
 
-  for cmd in git tmux bd jq flock; do
+  for cmd in git tmux br jq flock; do
     if ! command -v "${cmd}" >/dev/null 2>&1; then
       missing+=("${cmd}")
     fi
@@ -279,16 +226,6 @@ if ! [[ "${ORCA_LOCK_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]]; then
   exit 1
 fi
 
-if ! [[ "${DOLT_READY_MAX_ATTEMPTS}" =~ ^[1-9][0-9]*$ ]]; then
-  echo "[start] DOLT_READY_MAX_ATTEMPTS must be a positive integer: ${DOLT_READY_MAX_ATTEMPTS}" >&2
-  exit 1
-fi
-
-if ! [[ "${DOLT_READY_WAIT_SECONDS}" =~ ^[0-9]+$ ]]; then
-  echo "[start] DOLT_READY_WAIT_SECONDS must be a non-negative integer: ${DOLT_READY_WAIT_SECONDS}" >&2
-  exit 1
-fi
-
 if [[ -n "${AGENT_REASONING_LEVEL}" && ! "${AGENT_REASONING_LEVEL}" =~ ^[A-Za-z0-9._-]+$ ]]; then
   echo "[start] reasoning level must contain only letters, digits, dot, underscore, or dash: ${AGENT_REASONING_LEVEL}" >&2
   exit 1
@@ -307,6 +244,8 @@ if [[ ! -f "${PROMPT_TEMPLATE}" ]]; then
   exit 1
 fi
 
+ensure_br_workspace
+
 if [[ "${MAX_RUNS}" -eq 0 ]]; then
   mode_message="continuous (agent-controlled stop)"
 else
@@ -314,7 +253,6 @@ else
 fi
 
 echo "[start] run mode: ${mode_message}"
-ensure_dolt_server
 
 "${SCRIPT_DIR}/setup-worktrees.sh" "${COUNT}"
 validate_all_worktrees_before_launch

@@ -29,8 +29,14 @@ if rg -n "docs/planning|docs/research" "${runtime_targets[@]}" >/dev/null 2>&1; 
   fail=1
 fi
 
+if rg -n "\bbd\b|DOLT_|dolt|bookbinder-dolt" "${runtime_targets[@]}" >/dev/null 2>&1; then
+  echo "[boundary-check] runtime scripts must not reference legacy bd/dolt integration:" >&2
+  rg -n "\bbd\b|DOLT_|dolt|bookbinder-dolt" "${runtime_targets[@]}" >&2 || true
+  fail=1
+fi
+
 if [[ "${fail}" -ne 0 ]]; then
   exit 1
 fi
 
-echo "[boundary-check] OK: runtime scripts are separated from planning docs and stale path prefixes"
+echo "[boundary-check] OK: runtime scripts are separated from planning docs, stale path prefixes, and legacy bd/dolt references"

@@ -12,9 +12,9 @@ Complete exactly one issue in this run, or report `no_work`, then return control
 
 1. Own cognition in the agent: choose work, decide issue state transitions, and decide merge/close behavior.
 2. Keep scope tight: execute one issue end-to-end per run unless blocked.
-3. Keep coordination explicit: use beads dependencies and notes instead of implicit assumptions.
+3. Keep coordination explicit: use queue dependencies and notes instead of implicit assumptions.
 4. Keep shared integration safe: use `ORCA_WITH_LOCK_PATH` for merge/push critical sections.
-5. Capture discoveries for future leverage: create follow-up beads and append concise discovery notes.
+5. Capture discoveries for future leverage: create follow-up issues and append concise discovery notes.
 
 ## Required Workflow
 
@@ -23,14 +23,14 @@ Complete exactly one issue in this run, or report `no_work`, then return control
    - `SPEC.md`
    - `sample-pdfs/expected_output/manifest.json` (if relevant to current task)
 2. Inspect queue and choose one unblocked issue:
-   - `bd ready --limit 20`
-   - `bd show <id>`
-   - `bd dep list <id>`
+   - `br ready --json`
+   - `br show <id> --json`
+   - `br dep list <id> --json`
    - `./check-closed-deps-merged.sh <id>` (must pass before claim; if it fails, pick another issue or mark blocked)
 3. Claim atomically before coding:
-   - `bd update <id> --claim`
+   - `br update <id> --status in_progress`
 4. Implement the issue end-to-end:
-   - restate acceptance criteria from `bd show <id>`
+   - restate acceptance criteria from `br show <id> --json`
    - make minimal scoped changes
    - run relevant validation
    - update docs if behavior/workflow changes
@@ -41,19 +41,19 @@ Complete exactly one issue in this run, or report `no_work`, then return control
    - use `ORCA_WITH_LOCK_PATH` and run shared-target writes against `ORCA_PRIMARY_REPO`
    - use fail-fast merge scripts (`set -euo pipefail`), not loose command chains
 7. Capture discoveries during the run:
-   - create follow-up beads for bugs, improvements, and tooling ideas
+   - create follow-up queue issues for bugs, improvements, and tooling ideas
    - append brief notes to `__DISCOVERY_LOG_PATH__` (`ORCA_DISCOVERY_LOG_PATH`)
 8. Write run summary JSON to `__SUMMARY_JSON_PATH__`.
 
-## Beads Rules
+## Queue Rules (br)
 
 1. Do not work an unclaimed issue.
 2. Keep one active issue per run.
 3. If claim fails (race), choose another issue or return `no_work`.
 4. Model dependencies explicitly:
-   - if B must finish before A: `bd dep <B> --blocks <A>`
-   - if discovered during current issue but not blocking: `--deps discovered-from:<current-id>`
-5. For follow-up beads, include:
+   - if A depends on B: `br dep add <A> <B>`
+   - if discovered during current issue but not blocking: add relation/label notes that reference `discovered-from:<current-id>`
+5. For follow-up issues, include:
    - clear title
    - problem statement and impact
    - concrete next step
@@ -63,13 +63,13 @@ Complete exactly one issue in this run, or report `no_work`, then return control
 When you discover additional work:
 
 1. `blocking_defect`:
-   - create blocking bead and dependency
+   - create blocking issue and dependency
    - keep current issue open (`in_progress` or `blocked`)
 2. `non_blocking_improvement`:
-   - create follow-up bead with `discovered-from:<current-id>`
+   - create follow-up issue with `discovered-from:<current-id>` in description/labels
    - do not change current run scope
 3. `tooling_improvement`:
-   - create follow-up tooling bead
+   - create follow-up tooling issue
    - append a short note to `__DISCOVERY_LOG_PATH__`
 
 Keep discovery notes append-only and concise.
@@ -136,5 +136,5 @@ Rules:
 1. Issue is claimed (or explicit `no_work`).
 2. Code, tests, and docs for current issue are complete or clearly blocked.
 3. Merge/push steps are done or blocker is documented.
-4. Discovery beads and discovery log entries are recorded when applicable.
+4. Discovery follow-up issues and discovery log entries are recorded when applicable.
 5. Summary JSON is written and complete.

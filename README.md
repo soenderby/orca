@@ -31,6 +31,13 @@ M0 adds strict run-summary schema enforcement and metrics version attribution; i
 - Preferred: `./bb orca <command> [args]`
 - Direct: `./orca.sh <command> [args]`
 
+## Queue Initialization (one-time)
+
+```bash
+br init
+br config set id.prefix orca
+```
+
 ## Commands
 
 - `start [count] [--runs N|--continuous] [--reasoning-level LEVEL]`
@@ -44,7 +51,7 @@ Helper scripts (direct invocation):
 
 - `./with-lock.sh [--scope NAME] [--timeout SECONDS] -- <command> [args...]`
 - `./check-closed-deps-merged.sh <issue-id> [target-ref]`
-- `./check-runtime-boundaries.sh` (assert runtime scripts do not depend on planning/research docs or stale `scripts/orca/` paths)
+- `./check-runtime-boundaries.sh` (assert runtime scripts do not depend on planning/research docs, stale `scripts/orca/` paths, or legacy `bd`/Dolt references)
 
 ## TODO
 
@@ -61,12 +68,12 @@ In no particular order:
 Orca is a `tmux`-backed multi-agent loop with one persistent git worktree per agent:
 
 1. `setup-worktrees.sh` creates missing `worktrees/agent-N` on branch `swarm/agent-N` and reuses existing worktrees as-is.
-2. `start.sh` launches one tmux session per agent, injects runtime env, and ensures the Dolt SQL server container is running for beads server mode.
+2. `start.sh` launches one tmux session per agent, injects runtime env, and validates the local `br` queue workspace.
 3. `agent-loop.sh` runs one agent pass per iteration, creates a unique per-run branch, writes per-run logs/metrics, and parses the agent summary JSON.
 4. `AGENT_PROMPT.md` defines the agent contract for issue lifecycle, merge, discovery, and summary output.
 5. `with-lock.sh` provides a shared lock primitive for agent-owned merge/push critical sections.
-6. `status.sh` provides health and observability snapshots, including Dolt database checks.
-7. `stop.sh` terminates active sessions and stops the Dolt SQL server container.
+6. `status.sh` provides health and observability snapshots, including `br` workspace checks.
+7. `stop.sh` terminates active sessions.
 
 ## File Roles
 
@@ -78,7 +85,7 @@ Orca is a `tmux`-backed multi-agent loop with one persistent git worktree per ag
 - `check-closed-deps-merged.sh`: guard that verifies closed blocking dependencies for an issue are represented on integration history before claim
 - `check-runtime-boundaries.sh`: verifies runtime script isolation from planning/research docs and stale path prefixes
 - `status.sh`: displays sessions, worktrees, queue snapshots, logs, and metrics
-- `stop.sh`: stops active agent sessions and Dolt SQL server container
+- `stop.sh`: stops active agent sessions
 - `AGENT_PROMPT.md`: agent instruction contract used by `agent-loop.sh`
 - `OPERATOR_GUIDE.md`: human operator playbook and design rationale
 
@@ -154,30 +161,27 @@ Each iteration:
 
 Startup checks:
 
-1. required commands: `git`, `tmux`, `bd`, `jq`, `flock`, and `AGENT_COMMAND` binary
+1. required commands: `git`, `tmux`, `br`, `jq`, `flock`, and `AGENT_COMMAND` binary
 2. `count` positive integer
 3. `MAX_RUNS` non-negative integer
 4. `RUN_SLEEP_SECONDS` non-negative integer
 5. `ORCA_TIMING_METRICS` and `ORCA_COMPACT_SUMMARY` are `0|1`
 6. `ORCA_LOCK_SCOPE` matches `[A-Za-z0-9._-]+`
 7. `ORCA_LOCK_TIMEOUT_SECONDS` positive integer
-8. `DOLT_READY_MAX_ATTEMPTS` positive integer
-9. `DOLT_READY_WAIT_SECONDS` non-negative integer
-10. each non-running agent worktree is clean (`git status --porcelain` empty)
-11. `AGENT_REASONING_LEVEL` (if set) matches `[A-Za-z0-9._-]+`
-12. `PROMPT_TEMPLATE` exists
+8. `.beads/` workspace exists and `br doctor` succeeds
+9. each non-running agent worktree is clean (`git status --porcelain` empty)
+10. `AGENT_REASONING_LEVEL` (if set) matches `[A-Za-z0-9._-]+`
+11. `PROMPT_TEMPLATE` exists
 
 Behavior:
 
 1. default model `gpt-5.3-codex`
 2. optional reasoning level is appended to default command
 3. idempotent start for existing sessions
-4. invokes `setup-worktrees.sh` before launching sessions
-5. injects runtime knobs into each session
-6. ensures Dolt SQL server container is running (`bookbinder-dolt` by default)
-7. waits for Dolt SQL readiness before running setup queries and surfaces timeout diagnostics from container logs
-8. ensures SQL auth includes `root@'%'` for local TCP client compatibility
-9. refuses to launch sessions when a non-running agent worktree is dirty, with per-path status output
+4. validates local `br` queue workspace health before launch
+5. invokes `setup-worktrees.sh` before launching sessions
+6. injects runtime knobs into each session
+7. refuses to launch sessions when a non-running agent worktree is dirty, with per-path status output
 
 ### `agent-loop.sh`
 
@@ -201,13 +205,12 @@ Signal handling:
 ### `status.sh`
 
 1. prints an `orca health` summary (sessions, agent worktrees, primary repo dirty count, metrics rollup)
-2. prints Dolt database status (mode, server config, docker container state, bd connectivity)
-3. emits explicit alerts for high-signal conditions (no sessions, stale metrics, non-completed latest run, Dolt server down/failed, dirty agent worktrees)
+2. prints queue backend status for `br` (version, workspace presence, doctor result, sync status)
+3. emits explicit alerts for high-signal conditions (no sessions, stale metrics, non-completed latest run, unhealthy queue workspace, dirty agent worktrees)
 4. prints per-agent latest activity from `metrics.jsonl` (result, issue, age, duration, tokens, loop action)
-5. prints recent attention events (non-`completed` and non-`no_work` runs)
-6. prints tmux sessions and git worktrees
-7. prints queue snapshots (`in_progress`, `closed`) plus `bd status`
-8. prints latest metrics rows with agent and relative age
+5. prints tmux sessions and git worktrees
+6. prints queue snapshots (`in_progress`, `closed`)
+7. prints latest metrics rows with agent and relative age
 
 Tuning knobs:
 
@@ -220,7 +223,7 @@ Tuning knobs:
 
 Orca handles transport/observability errors. Agents handle workflow policy.
 
-1. startup hard-stop failures: invalid config/env/worktree/prompt path, Dolt readiness timeout, or dirty non-running agent worktree
+1. startup hard-stop failures: invalid config/env/worktree/prompt path, unhealthy `br` workspace, or dirty non-running agent worktree
 2. run-level failures: non-zero agent exit, missing/invalid summary JSON, summary schema validation failure, metrics append failure
 3. controlled stop: run limit reached or agent summary requests stop
 
@@ -289,11 +292,3 @@ Primary repo and lock helper are injected to agents as:
 - `ORCA_LOCK_TIMEOUT_SECONDS`: lock timeout seconds (default `120`)
 - `ORCA_PRIMARY_REPO`: primary repository path used for lock-guarded merge/push operations (default repo root)
 - `ORCA_WITH_LOCK_PATH`: absolute path to lock helper passed to agents (default `<repo-root>/with-lock.sh`)
-- `DOLT_CONTAINER_NAME`: Dolt SQL server container name (default `bookbinder-dolt`)
-- `DOLT_IMAGE`: Dolt container image (default `dolthub/dolt:latest`)
-- `DOLT_BIND_HOST`: host interface for container port bind (default `127.0.0.1`)
-- `DOLT_BIND_PORT`: host port for Dolt SQL server (default `3307`)
-- `DOLT_SERVER_PORT`: Dolt SQL server port inside container (default `3306`)
-- `DOLT_DATA_DIR`: host path mounted to Dolt data dir (default `<repo-root>/.beads/dolt`)
-- `DOLT_READY_MAX_ATTEMPTS`: Dolt SQL readiness retries before failing startup (default `30`)
-- `DOLT_READY_WAIT_SECONDS`: sleep between readiness retries (default `1`)

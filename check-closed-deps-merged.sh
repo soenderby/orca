@@ -21,7 +21,7 @@ if [[ $# -lt 1 || $# -gt 2 ]]; then
   exit 64
 fi
 
-for cmd in bd jq git; do
+for cmd in br jq git; do
   if ! command -v "${cmd}" >/dev/null 2>&1; then
     echo "[deps-check] missing required command: ${cmd}" >&2
     exit 64
@@ -40,16 +40,38 @@ if ! git rev-parse --verify --quiet "${target_ref}^{commit}" >/dev/null; then
   fi
 fi
 
-deps_json="$(bd dep list "${issue_id}" --json)"
+deps_json="$(br dep list "${issue_id}" --json)"
 
-# discovered-from and tracks do not block execution in Orca runs.
+# Pull closed dependency IDs from likely br JSON shapes.
 mapfile -t closed_dep_ids < <(
   jq -r '
-    .[]
-    | select(.status == "closed")
-    | select(.dependency_type != "discovered-from" and .dependency_type != "tracks")
-    | .id
-  ' <<<"${deps_json}"
+    def dep_type(o): (o.dependency_type // o.type // o.relation // "");
+    def dep_id(o):
+      o.id
+      // o.dependency_id
+      // o.depends_on
+      // o.depends_on_id
+      // o.parent
+      // o.parent_id
+      // o.to
+      // o.to_id
+      // empty;
+
+    [
+      (.[]? // empty),
+      (.dependencies[]? // empty),
+      (.blocked_by[]? // empty),
+      (.depends_on[]? // empty)
+    ]
+    | .[]
+    | select(type == "object")
+    | . as $dep
+    | (($dep.status // $dep.state // "") | ascii_downcase) as $status
+    | select($status == "closed")
+    | (dep_type($dep) | ascii_downcase) as $dtype
+    | select($dtype != "discovered-from" and $dtype != "tracks")
+    | (dep_id($dep) | strings)
+  ' <<<"${deps_json}" | sed '/^[[:space:]]*$/d' | sort -u
 )
 
 if [[ "${#closed_dep_ids[@]}" -eq 0 ]]; then

@@ -42,11 +42,10 @@ From repo root environment, ensure:
 
 ```bash
 git --version
-bd --version
+br --version
 tmux -V
 jq --version
 flock --version
-docker --version
 codex --version
 ```
 
@@ -54,8 +53,9 @@ Also ensure:
 
 1. you are authenticated in agent tooling (`codex login` if needed)
 2. repo has push access to `origin`
-3. queue has actionable work (`bd ready`)
-4. Dolt server mode is configured for beads (Orca start/stop manages the local container lifecycle)
+3. queue workspace exists (`br init`, once)
+4. queue ID prefix is configured (`br config set id.prefix orca`, once)
+5. queue has actionable work (`br ready --json`)
 
 ## Core Workflow
 
@@ -71,7 +71,7 @@ Also ensure:
 ./bb orca start 2 --continuous
 ```
 
-`orca start` now also starts (or creates) the local Dolt SQL server container (`bookbinder-dolt` by default), waits for SQL readiness, and fails fast with diagnostics if startup does not become ready or a non-running agent worktree is dirty.
+`orca start` validates the local `br` workspace (`.beads/`) and fails fast when the queue workspace is missing/unhealthy or a non-running agent worktree is dirty.
 
 Bounded mode:
 
@@ -87,7 +87,7 @@ find agent-logs/sessions -type f | sort | tail -n 20
 tail -n 10 agent-logs/metrics.jsonl
 ```
 
-`orca status` includes a Dolt database section with mode, server config, container state, `bd` connectivity check, and agent-worktree hygiene alerts.
+`orca status` includes a `br` queue section (version, workspace health, sync status) plus agent-worktree hygiene alerts.
 
 ### 4) Stop
 
@@ -95,7 +95,7 @@ tail -n 10 agent-logs/metrics.jsonl
 ./bb orca stop
 ```
 
-`orca stop` stops running Orca sessions (if any) and then stops the Dolt SQL server container.
+`orca stop` stops running Orca sessions (if any).
 
 ## What the Loop Does vs What Agents Do
 
@@ -123,7 +123,7 @@ Orca injects `ORCA_WITH_LOCK_PATH` and `ORCA_PRIMARY_REPO` into each run so merg
 
 ```bash
 git pull --rebase
-bd sync
+br sync --import-only
 ./bb orca start 2 --continuous
 ./bb orca status
 ```
@@ -131,9 +131,9 @@ bd sync
 ### Live Checks
 
 ```bash
-bd ready --limit 20
-bd list --status in_progress --limit 50
-bd list --status closed --sort closed --reverse --limit 20
+br ready --json
+br list --status in_progress --limit 50
+br list --status closed --sort updated --reverse --limit 20
 ```
 
 Dependency-merge guard for a candidate issue:
@@ -187,7 +187,7 @@ Scale down cleanly:
 
 1. avoid destructive git commands during active swarm sessions
 2. avoid manually editing multiple agent worktrees at once unless deliberate
-3. keep beads as source of truth for queue state and dependencies
+3. keep `br` queue state as source of truth for issue state and dependencies
 4. keep shared-target writes inside `ORCA_WITH_LOCK_PATH` lock-guarded commands
 
 ## Operator Checklist
@@ -196,5 +196,5 @@ Before ending a session:
 
 1. active failures are understood and noted
 2. blockers are reflected in issue notes
-3. important follow-up work is represented in beads
+3. important follow-up work is represented in `br` issues
 4. local repo state is synchronized and pushed per `AGENTS.md`

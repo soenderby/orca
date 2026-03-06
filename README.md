@@ -86,7 +86,7 @@ In no particular order:
 
 Orca is a `tmux`-backed multi-agent loop with one persistent git worktree per agent:
 
-1. `setup-worktrees.sh` creates missing `worktrees/agent-N` on branch `swarm/agent-N` and reuses existing worktrees as-is.
+1. `setup-worktrees.sh` creates missing `worktrees/agent-N` on branch `swarm/agent-N` from the detected base ref (ignores stale `origin/swarm/agent-N` by default) and reuses existing worktrees as-is.
 2. `start.sh` launches one tmux session per agent, injects runtime env, and validates the local `br` queue workspace.
 3. `agent-loop.sh` runs one agent pass per iteration, creates a unique per-run branch, writes per-run logs/metrics, and parses the agent summary JSON.
 4. `AGENT_PROMPT.md` defines the agent contract for issue lifecycle, merge, discovery, and summary output.
@@ -332,3 +332,5 @@ Primary repo and helper paths are injected to agents as:
 - `ORCA_WITH_LOCK_PATH`: absolute path to lock helper passed to agents (default `<repo-root>/with-lock.sh`)
 - `ORCA_QUEUE_WRITE_MAIN_PATH`: absolute path to queue mutation helper passed to agents (default `<repo-root>/queue-write-main.sh`)
 - `ORCA_MERGE_MAIN_PATH`: absolute path to merge helper passed to agents (default `<repo-root>/merge-main.sh`)
+- `ORCA_BASE_REF`: optional explicit base ref for new worktrees (default: detect from `origin/HEAD`, then `origin/main`, then `main`, then current branch)
+- `ORCA_REUSE_REMOTE_AGENT_BRANCHES`: set to `1` to create missing worktrees from existing `origin/swarm/agent-N` branches; default `0` (create from base ref)

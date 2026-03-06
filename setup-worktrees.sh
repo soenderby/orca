@@ -5,9 +5,15 @@ COUNT="${1:-2}"
 ROOT="$(git rev-parse --show-toplevel)"
 origin_available=0
 BASE_REF=""
+ORCA_REUSE_REMOTE_AGENT_BRANCHES="${ORCA_REUSE_REMOTE_AGENT_BRANCHES:-0}"
 
 if ! [[ "${COUNT}" =~ ^[1-9][0-9]*$ ]]; then
   echo "[setup] count must be a positive integer: ${COUNT}" >&2
+  exit 1
+fi
+
+if ! [[ "${ORCA_REUSE_REMOTE_AGENT_BRANCHES}" =~ ^[01]$ ]]; then
+  echo "[setup] ORCA_REUSE_REMOTE_AGENT_BRANCHES must be 0 or 1: ${ORCA_REUSE_REMOTE_AGENT_BRANCHES}" >&2
   exit 1
 fi
 
@@ -138,8 +144,15 @@ create_worktree_if_missing() {
   fi
 
   if [[ "${origin_available}" -eq 1 ]] && git ls-remote --exit-code --heads origin "${branch}" >/dev/null 2>&1; then
-    echo "[setup] creating ${rel_path} from origin/${branch}"
-    git worktree add -b "${branch}" "${abs_path}" "origin/${branch}"
+    if [[ "${ORCA_REUSE_REMOTE_AGENT_BRANCHES}" -eq 1 ]]; then
+      echo "[setup] creating ${rel_path} from origin/${branch} (ORCA_REUSE_REMOTE_AGENT_BRANCHES=1)"
+      git worktree add -b "${branch}" "${abs_path}" "origin/${branch}"
+      return 0
+    fi
+
+    echo "[setup] remote branch origin/${branch} exists but will be ignored by default"
+    echo "[setup] creating ${rel_path} from ${base_ref} (set ORCA_REUSE_REMOTE_AGENT_BRANCHES=1 to reuse remote agent branches)"
+    git worktree add -b "${branch}" "${abs_path}" "${base_ref}"
     return 0
   fi
 

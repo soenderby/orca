@@ -183,8 +183,9 @@ Each iteration:
 2. renders `AGENT_PROMPT.md` placeholders (agent/worktree/summary/discovery/primary-repo/lock/queue-write/merge-helper paths)
 3. executes agent command once
 4. parses summary JSON and validates required schema fields when present
-5. appends metrics row to `agent-logs/metrics.jsonl`
-6. continues until `MAX_RUNS` or agent requests stop via `loop_action=stop`
+5. restores any leftover local `.beads/` working-tree changes to keep run branches clean
+6. appends metrics row to `agent-logs/metrics.jsonl`
+7. continues until `MAX_RUNS` or agent requests stop via `loop_action=stop`
 
 ## Validation and Safety Checks
 

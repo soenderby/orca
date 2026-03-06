@@ -688,6 +688,39 @@ finalize_run_observability() {
   fi
 }
 
+restore_worktree_queue_artifacts() {
+  local queue_status
+  local line
+
+  queue_status="$(git status --short -- .beads/ 2>/dev/null || true)"
+  if [[ -z "${queue_status}" ]]; then
+    return 0
+  fi
+
+  log "warning: run left local .beads changes in worktree; restoring to keep run branch clean"
+  while IFS= read -r line; do
+    [[ -z "${line}" ]] && continue
+    log "queue dirty: ${line}"
+  done <<< "${queue_status}"
+
+  if ! git restore --staged --worktree .beads/ >/dev/null 2>&1; then
+    log "fatal: failed to restore local .beads changes"
+    return 1
+  fi
+
+  queue_status="$(git status --short -- .beads/ 2>/dev/null || true)"
+  if [[ -n "${queue_status}" ]]; then
+    log "fatal: .beads remained dirty after restore"
+    while IFS= read -r line; do
+      [[ -z "${line}" ]] && continue
+      log "queue dirty after restore: ${line}"
+    done <<< "${queue_status}"
+    return 1
+  fi
+
+  log "restored local .beads changes"
+}
+
 cleanup_on_signal() {
   local signal="$1"
 
@@ -781,6 +814,14 @@ while true; do
 
   parse_summary_json_if_present
   determine_run_result
+
+  if ! restore_worktree_queue_artifacts; then
+    local_stop_requested=1
+    RUN_RESULT="failed"
+    RUN_REASON="worktree-queue-restore-failed"
+    log "stopping loop after failure to restore local .beads changes"
+  fi
+
   finalize_run_observability
 
   runs_completed=$((runs_completed + 1))

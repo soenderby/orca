@@ -191,6 +191,7 @@ Scale down cleanly:
    - verify CLI auth/config and `AGENT_COMMAND`
 5. Run branch setup failure due dirty worktree:
    - check `git -C worktrees/agent-N status --short`
+   - inspect for leftover `.beads/` or partial code edits
    - commit/stash/discard changes in that worktree, then rerun `./bb orca start`
 
 ## Safety Rules

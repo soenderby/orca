@@ -64,7 +64,8 @@ ISSUE_ID="<candidate-id>"
    - set state (`in_progress`, `blocked`, `closed`) intentionally
 6. Capture discoveries as follow-up issues (see protocol below), also via `ORCA_QUEUE_WRITE_MAIN_PATH`.
 7. Merge/push with `ORCA_MERGE_MAIN_PATH` (pattern below).
-8. Write run summary JSON to `__SUMMARY_JSON_PATH__`.
+8. Before finishing run, ensure `.beads/` is not left dirty in the run branch (`git status --short -- .beads/`).
+9. Write run summary JSON to `__SUMMARY_JSON_PATH__`.
 
 ## Discovery Protocol
 
@@ -133,4 +134,5 @@ Rules:
 2. Code/tests/docs completed for claimed scope, or blocker documented.
 3. Queue mutations executed via `ORCA_QUEUE_WRITE_MAIN_PATH` (not via run-branch `.beads` edits).
 4. Discovery follow-up issues and discovery log entries recorded when applicable.
-5. Summary JSON written and complete.
+5. `.beads/` not left dirty in run branch.
+6. Summary JSON written and complete.

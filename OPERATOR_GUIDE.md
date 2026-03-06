@@ -17,7 +17,7 @@ Use Orca when you want to:
    - Agents handle decisions (issue selection, status transitions, merge/close strategy, discovery handling).
 2. Explicit primitives over hidden heuristics:
    - Provide lock, summary, and logging primitives.
-   - Avoid encoding behavioral policy in scripts.
+   - Encode only safety-critical invariants in scripts (queue writes on `main`, merge guards).
 3. Agent-owned lifecycle:
    - Agents claim work, update issue status, merge/push, and close issues.
 4. Operational clarity:
@@ -56,6 +56,22 @@ Also ensure:
 3. queue workspace exists (`br init`, once)
 4. queue ID prefix is configured (`br config set id.prefix orca`, once)
 5. queue has actionable work (`br ready --json`)
+
+## Queue Sync and Concurrency Model
+
+1. `br` collaboration is git-based and async (`.beads/issues.jsonl`), not a central queue server.
+2. `--claim` is atomic per SQLite DB snapshot.
+3. Orca agents run in separate worktrees, so stale snapshots can still race unless claims are published centrally.
+4. Orca policy is to run all queue mutations via `queue-write-main.sh` on `ORCA_PRIMARY_REPO/main` before/after coding as needed.
+5. Run branches must not carry `.beads/` changes; integration is code-only.
+6. Sync expectations:
+   - import before claim/select (`br sync --import-only`)
+   - queue helper performs import/flush around each queue mutation
+   - commit/push `.beads/` updates on `main` as part of helper workflow
+
+Queue mutation and merge/push share one writer lock scope (`ORCA_LOCK_SCOPE`, default `merge`) so all local `main` writes serialize.
+
+Cross-machine note: lock files are local to each clone. Global contention resolves through git publication order on `main`; failed claim publication should be treated as a race and retried with a fresh import.
 
 ## Core Workflow
 
@@ -108,14 +124,14 @@ Orca loop (`agent-loop.sh`) does:
 
 Agent does:
 
-1. choose and claim issues
+1. choose issues and publish claims via `ORCA_QUEUE_WRITE_MAIN_PATH`
 2. implement and validate
-3. update issue states and notes
-4. merge/push using `ORCA_WITH_LOCK_PATH` against `ORCA_PRIMARY_REPO`
-5. close issues
+3. update issue states/notes/discovery items via `ORCA_QUEUE_WRITE_MAIN_PATH`
+4. merge/push via `ORCA_MERGE_MAIN_PATH`
+5. close issues via `ORCA_QUEUE_WRITE_MAIN_PATH`
 6. record discoveries and summary JSON
 
-Orca injects `ORCA_WITH_LOCK_PATH` and `ORCA_PRIMARY_REPO` into each run so merge scripts can use stable absolute paths and avoid worktree-relative path mistakes.
+Orca injects `ORCA_WITH_LOCK_PATH`, `ORCA_PRIMARY_REPO`, `ORCA_LOCK_SCOPE`, `ORCA_LOCK_TIMEOUT_SECONDS`, `ORCA_QUEUE_WRITE_MAIN_PATH`, and `ORCA_MERGE_MAIN_PATH` into each run so helper scripts can use stable absolute paths.
 
 ## Operating Playbook
 
@@ -135,14 +151,6 @@ br ready --json
 br list --status in_progress --limit 50
 br list --status closed --sort updated --reverse --limit 20
 ```
-
-Dependency-merge guard for a candidate issue:
-
-```bash
-./check-closed-deps-merged.sh <issue-id>
-```
-
-If this guard fails, closed blocking dependencies are not yet represented on `main`; treat the issue as not executable in the current run.
 
 Attach to a session:
 
@@ -171,12 +179,14 @@ Scale down cleanly:
 1. Agent requests stop (`loop_action=stop`):
    - expected for no-work or explicit shutdown conditions
    - inspect latest `summary.json` / `summary.md` under `agent-logs/sessions/.../runs/...`, then restart if needed
-2. Agent claim races:
-   - normal in parallel operation; agent should select another issue
+2. Claim publication failures/races:
+   - expected signal when multiple agents/machines compete for same issue
+   - winning claim is the one successfully published to `main`
+   - losing agent should re-import queue state and select another issue
 3. Merge/push failures:
    - agent-owned; inspect logs and issue notes, then restart sessions as needed
-   - ensure lock-guarded merge scripts use `set -euo pipefail` so early command failures cannot be masked
-   - require a pre-merge cleanliness check on `ORCA_PRIMARY_REPO` (`git diff --quiet` and `git diff --cached --quiet`) so dirty `main` fails before fetch/merge
+   - `merge-main.sh` enforces dirty-tree precheck and rejects source branches containing `.beads/` changes
+   - `merge-main.sh` performs merge-failure cleanup (`merge --abort` / reset path) so primary repo does not stay conflicted
 4. Immediate agent command failures:
    - verify CLI auth/config and `AGENT_COMMAND`
 5. Run branch setup failure due dirty worktree:
@@ -188,7 +198,7 @@ Scale down cleanly:
 1. avoid destructive git commands during active swarm sessions
 2. avoid manually editing multiple agent worktrees at once unless deliberate
 3. keep `br` queue state as source of truth for issue state and dependencies
-4. keep shared-target writes inside `ORCA_WITH_LOCK_PATH` lock-guarded commands
+4. keep queue writes in `ORCA_QUEUE_WRITE_MAIN_PATH` and merges in `ORCA_MERGE_MAIN_PATH` (both lock-guarded)
 
 ## Operator Checklist
 

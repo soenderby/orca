@@ -29,10 +29,14 @@ fi
 PROMPT_TEMPLATE="${PROMPT_TEMPLATE:-${ROOT}/AGENT_PROMPT.md}"
 PRIMARY_REPO="${ORCA_PRIMARY_REPO:-${ROOT}}"
 LOCK_HELPER_PATH="${ORCA_WITH_LOCK_PATH:-${ROOT}/with-lock.sh}"
+QUEUE_WRITE_HELPER_PATH="${ORCA_QUEUE_WRITE_MAIN_PATH:-${ROOT}/queue-write-main.sh}"
+MERGE_HELPER_PATH="${ORCA_MERGE_MAIN_PATH:-${ROOT}/merge-main.sh}"
 MAX_RUNS="${MAX_RUNS:-0}"
 RUN_SLEEP_SECONDS="${RUN_SLEEP_SECONDS:-2}"
 ORCA_TIMING_METRICS="${ORCA_TIMING_METRICS:-1}"
 ORCA_COMPACT_SUMMARY="${ORCA_COMPACT_SUMMARY:-1}"
+ORCA_LOCK_SCOPE="${ORCA_LOCK_SCOPE:-merge}"
+ORCA_LOCK_TIMEOUT_SECONDS="${ORCA_LOCK_TIMEOUT_SECONDS:-120}"
 AGENT_LOG_ROOT="${ROOT}/agent-logs"
 SESSION_LOG_ROOT="${AGENT_LOG_ROOT}/sessions"
 
@@ -56,6 +60,16 @@ if ! [[ "${ORCA_COMPACT_SUMMARY}" =~ ^[01]$ ]]; then
   exit 1
 fi
 
+if ! [[ "${ORCA_LOCK_SCOPE}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+  echo "ORCA_LOCK_SCOPE must contain only letters, digits, dot, underscore, or dash: ${ORCA_LOCK_SCOPE}" >&2
+  exit 1
+fi
+
+if ! [[ "${ORCA_LOCK_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "ORCA_LOCK_TIMEOUT_SECONDS must be a positive integer: ${ORCA_LOCK_TIMEOUT_SECONDS}" >&2
+  exit 1
+fi
+
 if [[ -n "${AGENT_REASONING_LEVEL}" && ! "${AGENT_REASONING_LEVEL}" =~ ^[A-Za-z0-9._-]+$ ]]; then
   echo "AGENT_REASONING_LEVEL must contain only letters, digits, dot, underscore, or dash: ${AGENT_REASONING_LEVEL}" >&2
   exit 1
@@ -73,6 +87,16 @@ fi
 
 if [[ ! -x "${LOCK_HELPER_PATH}" ]]; then
   echo "ORCA_WITH_LOCK_PATH must be executable: ${LOCK_HELPER_PATH}" >&2
+  exit 1
+fi
+
+if [[ ! -x "${QUEUE_WRITE_HELPER_PATH}" ]]; then
+  echo "ORCA_QUEUE_WRITE_MAIN_PATH must be executable: ${QUEUE_WRITE_HELPER_PATH}" >&2
+  exit 1
+fi
+
+if [[ ! -x "${MERGE_HELPER_PATH}" ]]; then
+  echo "ORCA_MERGE_MAIN_PATH must be executable: ${MERGE_HELPER_PATH}" >&2
   exit 1
 fi
 
@@ -187,6 +211,8 @@ start_run_artifacts() {
   log "discovery log path: ${DISCOVERY_LOG_FILE}"
   log "primary repo path: ${PRIMARY_REPO}"
   log "lock helper path: ${LOCK_HELPER_PATH}"
+  log "queue write helper path: ${QUEUE_WRITE_HELPER_PATH}"
+  log "merge helper path: ${MERGE_HELPER_PATH}"
   log "harness version: ${HARNESS_VERSION}"
 }
 
@@ -298,6 +324,10 @@ write_prompt_file() {
   prompt_text="${prompt_text//__ORCA_PRIMARY_REPO__/${PRIMARY_REPO}}"
   prompt_text="${prompt_text//__WITH_LOCK_PATH__/${LOCK_HELPER_PATH}}"
   prompt_text="${prompt_text//__ORCA_WITH_LOCK_PATH__/${LOCK_HELPER_PATH}}"
+  prompt_text="${prompt_text//__QUEUE_WRITE_MAIN_PATH__/${QUEUE_WRITE_HELPER_PATH}}"
+  prompt_text="${prompt_text//__ORCA_QUEUE_WRITE_MAIN_PATH__/${QUEUE_WRITE_HELPER_PATH}}"
+  prompt_text="${prompt_text//__MERGE_MAIN_PATH__/${MERGE_HELPER_PATH}}"
+  prompt_text="${prompt_text//__ORCA_MERGE_MAIN_PATH__/${MERGE_HELPER_PATH}}"
 
   printf '%s\n' "${prompt_text}" > "${prompt_file}"
 }
@@ -684,6 +714,8 @@ log "session id: ${AGENT_SESSION_ID}"
 log "agent discovery log: ${DISCOVERY_LOG_FILE}"
 log "agent primary repo: ${PRIMARY_REPO}"
 log "agent lock helper: ${LOCK_HELPER_PATH}"
+log "agent queue write helper: ${QUEUE_WRITE_HELPER_PATH}"
+log "agent merge helper: ${MERGE_HELPER_PATH}"
 log "harness version: ${HARNESS_VERSION}"
 if [[ "${MAX_RUNS}" -eq 0 ]]; then
   log "run mode: unbounded"
@@ -722,6 +754,7 @@ while true; do
   log "running agent command"
 
   run_started_epoch="$(now_epoch)"
+
   if ORCA_RUN_SUMMARY_PATH="${SUMMARY_JSON_FILE}" \
     ORCA_RUN_LOG_PATH="${LOGFILE}" \
     ORCA_RUN_NUMBER="${RUN_NUMBER}" \
@@ -731,6 +764,10 @@ while true; do
     ORCA_AGENT_DISCOVERY_LOG_PATH="${DISCOVERY_LOG_FILE}" \
     ORCA_PRIMARY_REPO="${PRIMARY_REPO}" \
     ORCA_WITH_LOCK_PATH="${LOCK_HELPER_PATH}" \
+    ORCA_QUEUE_WRITE_MAIN_PATH="${QUEUE_WRITE_HELPER_PATH}" \
+    ORCA_MERGE_MAIN_PATH="${MERGE_HELPER_PATH}" \
+    ORCA_LOCK_SCOPE="${ORCA_LOCK_SCOPE}" \
+    ORCA_LOCK_TIMEOUT_SECONDS="${ORCA_LOCK_TIMEOUT_SECONDS}" \
     bash -lc "${RUN_AGENT_COMMAND}" < "${prompt_file}" >> "${LOGFILE}" 2>&1; then
     RUN_EXIT_CODE=0
   else

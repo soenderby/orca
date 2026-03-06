@@ -12,7 +12,8 @@ runtime_targets=(
   setup-worktrees.sh
   agent-loop.sh
   with-lock.sh
-  check-closed-deps-merged.sh
+  queue-write-main.sh
+  merge-main.sh
 )
 
 fail=0

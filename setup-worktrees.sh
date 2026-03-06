@@ -4,6 +4,7 @@ set -euo pipefail
 COUNT="${1:-2}"
 ROOT="$(git rev-parse --show-toplevel)"
 origin_available=0
+BASE_REF=""
 
 if ! [[ "${COUNT}" =~ ^[1-9][0-9]*$ ]]; then
   echo "[setup] count must be a positive integer: ${COUNT}" >&2
@@ -17,6 +18,43 @@ if git remote get-url origin >/dev/null 2>&1; then
 else
   echo "[setup] warning: no origin remote configured; upstream setup skipped" >&2
 fi
+
+detect_base_ref() {
+  local origin_head_ref
+  local current_branch
+
+  if [[ -n "${ORCA_BASE_REF:-}" ]]; then
+    printf '%s\n' "${ORCA_BASE_REF}"
+    return 0
+  fi
+
+  if [[ "${origin_available}" -eq 1 ]]; then
+    origin_head_ref="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)"
+    if [[ -n "${origin_head_ref}" ]] && git rev-parse --verify --quiet "${origin_head_ref}^{commit}" >/dev/null; then
+      printf '%s\n' "${origin_head_ref}"
+      return 0
+    fi
+
+    if git rev-parse --verify --quiet "origin/main^{commit}" >/dev/null; then
+      printf '%s\n' "origin/main"
+      return 0
+    fi
+  fi
+
+  if git rev-parse --verify --quiet "main^{commit}" >/dev/null; then
+    printf '%s\n' "main"
+    return 0
+  fi
+
+  current_branch="$(git branch --show-current 2>/dev/null || true)"
+  if [[ -n "${current_branch}" ]]; then
+    printf '%s\n' "${current_branch}"
+    return 0
+  fi
+
+  echo "[setup] unable to determine a base ref for new worktrees" >&2
+  exit 1
+}
 
 ensure_upstream() {
   local worktree_path="$1"
@@ -86,6 +124,7 @@ create_worktree_if_missing() {
   local abs_path="$1"
   local rel_path="$2"
   local branch="$3"
+  local base_ref="$4"
 
   if git worktree list --porcelain | awk '/^worktree / {print $2}' | grep -Fxq "${abs_path}"; then
     echo "[setup] ${rel_path} already exists"
@@ -104,9 +143,12 @@ create_worktree_if_missing() {
     return 0
   fi
 
-  echo "[setup] creating ${rel_path} (new branch: ${branch} from main)"
-  git worktree add -b "${branch}" "${abs_path}" main
+  echo "[setup] creating ${rel_path} (new branch: ${branch} from ${base_ref})"
+  git worktree add -b "${branch}" "${abs_path}" "${base_ref}"
 }
+
+BASE_REF="$(detect_base_ref)"
+echo "[setup] base ref for new worktrees: ${BASE_REF}"
 
 for i in $(seq 1 "${COUNT}"); do
   name="agent-${i}"
@@ -114,7 +156,7 @@ for i in $(seq 1 "${COUNT}"); do
   abs_path="${ROOT}/${rel_path}"
   branch="swarm/${name}"
 
-  create_worktree_if_missing "${abs_path}" "${rel_path}" "${branch}"
+  create_worktree_if_missing "${abs_path}" "${rel_path}" "${branch}" "${BASE_REF}"
   ensure_upstream "${abs_path}" "${branch}"
 done
 

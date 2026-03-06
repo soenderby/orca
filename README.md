@@ -38,6 +38,23 @@ br init
 br config set id.prefix orca
 ```
 
+## Queue Sync + Concurrency Model
+
+Orca with `br` uses git-based async queue collaboration (`.beads/issues.jsonl`), not a central queue server.
+
+1. `br` claim atomicity (`--claim`) is scoped to a SQLite DB snapshot.
+2. Agents run in separate worktrees, so stale snapshots can produce duplicate local claims unless claims are published centrally.
+3. Orca policy: claim publication is lock-guarded against `ORCA_PRIMARY_REPO/main` before coding, using the same writer lock scope as merge/push (see `AGENT_PROMPT.md`).
+4. Queue mutation policy:
+   - mutate queue state only through `queue-write-main.sh` on `ORCA_PRIMARY_REPO/main`
+   - do not carry `.beads/` changes in run branches
+5. Queue sync lifecycle:
+   - import before selecting/claiming (`br sync --import-only`)
+   - helper performs import/flush around queue mutations (`br sync --import-only`, `br sync --flush-only`)
+   - track `.beads/` in git for cross-machine collaboration
+6. Claim publication and merge/push both use the shared writer lock (`ORCA_LOCK_SCOPE`, default `merge`).
+7. Cross-machine note: lock files are local. Concurrency across machines is resolved by git publication order on `main` (losing claim attempts must re-import and pick another issue).
+
 ## Commands
 
 - `start [count] [--runs N|--continuous] [--reasoning-level LEVEL]`
@@ -45,12 +62,14 @@ br config set id.prefix orca
 - `status`
 - `setup-worktrees [count]`
 - `with-lock [--scope NAME] [--timeout SECONDS] -- <command> [args...]`
-- `check-closed-deps-merged <issue-id> [target-ref]`
+- `queue-write-main [options] -- <queue-command> [args...]`
+- `merge-main [--source BRANCH] [options]`
 
 Helper scripts (direct invocation):
 
 - `./with-lock.sh [--scope NAME] [--timeout SECONDS] -- <command> [args...]`
-- `./check-closed-deps-merged.sh <issue-id> [target-ref]`
+- `./queue-write-main.sh [options] -- <queue-command> [args...]`
+- `./merge-main.sh [--source BRANCH] [options]`
 - `./check-runtime-boundaries.sh` (assert runtime scripts do not depend on planning/research docs, stale `scripts/orca/` paths, or legacy `bd`/Dolt references)
 
 ## TODO
@@ -71,9 +90,11 @@ Orca is a `tmux`-backed multi-agent loop with one persistent git worktree per ag
 2. `start.sh` launches one tmux session per agent, injects runtime env, and validates the local `br` queue workspace.
 3. `agent-loop.sh` runs one agent pass per iteration, creates a unique per-run branch, writes per-run logs/metrics, and parses the agent summary JSON.
 4. `AGENT_PROMPT.md` defines the agent contract for issue lifecycle, merge, discovery, and summary output.
-5. `with-lock.sh` provides a shared lock primitive for agent-owned merge/push critical sections.
-6. `status.sh` provides health and observability snapshots, including `br` workspace checks.
-7. `stop.sh` terminates active sessions.
+5. `with-lock.sh` provides the shared lock primitive used by queue/merge helpers.
+6. `queue-write-main.sh` performs lock-guarded queue mutations on `ORCA_PRIMARY_REPO/main`.
+7. `merge-main.sh` performs lock-guarded merge/push and rejects `.beads`-carrying source branches.
+8. `status.sh` provides health and observability snapshots, including `br` workspace checks.
+9. `stop.sh` terminates active sessions.
 
 ## File Roles
 
@@ -81,8 +102,9 @@ Orca is a `tmux`-backed multi-agent loop with one persistent git worktree per ag
 - `setup-worktrees.sh`: creates and verifies persistent agent worktrees
 - `start.sh`: launches tmux-backed agent loops
 - `agent-loop.sh`: per-agent run loop that executes the prompt, captures run artifacts, and records summary/metrics
-- `with-lock.sh`: scoped lock wrapper for commands that must serialize shared git integration operations
-- `check-closed-deps-merged.sh`: guard that verifies closed blocking dependencies for an issue are represented on integration history before claim
+- `with-lock.sh`: scoped lock wrapper primitive for serialized shared writes
+- `queue-write-main.sh`: lock-guarded queue mutation helper that imports/flushes and commits `.beads/` on `main`
+- `merge-main.sh`: lock-guarded merge helper with `.beads` source-branch guard and merge-failure cleanup
 - `check-runtime-boundaries.sh`: verifies runtime script isolation from planning/research docs and stale path prefixes
 - `status.sh`: displays sessions, worktrees, queue snapshots, logs, and metrics
 - `stop.sh`: stops active agent sessions
@@ -91,42 +113,51 @@ Orca is a `tmux`-backed multi-agent loop with one persistent git worktree per ag
 
 ## Lock Pattern (`with-lock.sh`)
 
-For agent-owned integration flows, wrap merge/push critical sections in `with-lock.sh` so only one writer updates shared targets at a time.
-
-```bash
-"${ORCA_WITH_LOCK_PATH}" --scope merge --timeout 120 -- \
-  bash -lc '
-    set -euo pipefail
-    repo="${ORCA_PRIMARY_REPO}"
-    src_branch="$(git branch --show-current)"
-    primary_branch="$(git -C "$repo" branch --show-current)"
-    if [[ "$primary_branch" != "main" ]]; then
-      echo "[merge-precheck] expected primary repo on main, found: ${primary_branch}" >&2
-      echo "[merge-precheck] fix by checking out main in ${repo} before retrying" >&2
-      exit 1
-    fi
-    if ! git -C "$repo" diff --quiet || ! git -C "$repo" diff --cached --quiet; then
-      echo "[merge-precheck] primary repo has uncommitted changes; aborting before fetch/merge" >&2
-      git -C "$repo" status --short >&2
-      echo "[merge-precheck] stash/commit/discard changes in ${repo}, then rerun merge block" >&2
-      exit 1
-    fi
-    git -C "$repo" fetch origin main "$src_branch"
-    git -C "$repo" checkout main
-    git -C "$repo" pull --ff-only origin main
-    git -C "$repo" merge --no-ff "$src_branch"
-    git -C "$repo" push origin main
-  '
-```
+`with-lock.sh` remains the primitive lock wrapper. Agents should use higher-level helpers instead of hand-writing lock blocks.
 
 Notes:
 
 1. default scope is `merge`
 2. default lock file for `merge` scope is `<git-common-dir>/orca-global.lock`
 3. non-default scopes use `<git-common-dir>/orca-global-<scope>.lock`
-4. keep all shared-target write steps in one lock invocation
-5. use `set -euo pipefail` in lock-guarded merge scripts to fail fast
-6. run a dirty-tree precheck (`git diff --quiet` and `git diff --cached --quiet`) before fetch/merge
+4. keep each shared-target write transaction in one lock invocation
+
+### Queue Mutation Pattern (`queue-write-main.sh`)
+
+All queue mutations (claim, comments, state transitions, discovery issue creation, dependency edges) must run through `queue-write-main.sh`:
+
+```bash
+ISSUE_ID="<candidate-id>"
+"${ORCA_QUEUE_WRITE_MAIN_PATH}" \
+  --actor "${AGENT_NAME}" \
+  --message "queue: claim ${ISSUE_ID} by ${AGENT_NAME}" \
+  -- \
+  br --actor "${AGENT_NAME}" update "${ISSUE_ID}" --claim --json
+```
+
+Helper guarantees:
+
+1. lock + precheck + `fetch/pull` on `ORCA_PRIMARY_REPO/main`
+2. `br sync --import-only` before queue command
+3. `br sync --flush-only` after queue command
+4. commit/push `.beads/` only when there are staged queue changes
+
+### Merge Pattern (`merge-main.sh`)
+
+Use `merge-main.sh` for run-branch integration:
+
+```bash
+"${ORCA_MERGE_MAIN_PATH}" --source "$(git branch --show-current)"
+```
+
+Helper guarantees:
+
+1. lock + precheck + `fetch/pull` on `ORCA_PRIMARY_REPO/main`
+2. hard failure if source branch carries `.beads/` changes (`main...source`)
+3. merge failure cleanup (`merge --abort`, reset cleanup path)
+4. push of merged `main`
+
+Using one shared writer lock for both helper paths serializes local `main` writes and prevents queue/code interleaving races between concurrent local Orca agents.
 
 ## Run Summary JSON Contract
 
@@ -138,7 +169,7 @@ Agents must write a JSON object to `ORCA_RUN_SUMMARY_PATH` (also provided in pro
 | `result` | string | yes | `completed`, `blocked`, `no_work`, `failed` |
 | `issue_status` | string | yes | Issue status after this run, or empty for `no_work`. |
 | `merged` | boolean | yes | `true` only when merge/integration completed in this run. |
-| `discovery_ids` | array[string] | yes | Follow-up bead IDs created in this run. Use `[]` when none. |
+| `discovery_ids` | array[string] | yes | Follow-up issue IDs created in this run. Use `[]` when none. |
 | `discovery_count` | integer | yes | Must equal `discovery_ids` length. |
 | `loop_action` | string | yes | `continue` or `stop` |
 | `loop_action_reason` | string | yes | Reason for selected `loop_action`; empty string allowed. |
@@ -149,7 +180,7 @@ Agents must write a JSON object to `ORCA_RUN_SUMMARY_PATH` (also provided in pro
 Each iteration:
 
 1. creates run artifacts (`run.log`, `summary.json`, optional `summary.md`) under session/run directories
-2. renders `AGENT_PROMPT.md` placeholders (agent/worktree/summary/discovery/primary-repo/lock-helper paths)
+2. renders `AGENT_PROMPT.md` placeholders (agent/worktree/summary/discovery/primary-repo/lock/queue-write/merge-helper paths)
 3. executes agent command once
 4. parses summary JSON and validates required schema fields when present
 5. appends metrics row to `agent-logs/metrics.jsonl`
@@ -162,16 +193,18 @@ Each iteration:
 Startup checks:
 
 1. required commands: `git`, `tmux`, `br`, `jq`, `flock`, and `AGENT_COMMAND` binary
-2. `count` positive integer
-3. `MAX_RUNS` non-negative integer
-4. `RUN_SLEEP_SECONDS` non-negative integer
-5. `ORCA_TIMING_METRICS` and `ORCA_COMPACT_SUMMARY` are `0|1`
-6. `ORCA_LOCK_SCOPE` matches `[A-Za-z0-9._-]+`
-7. `ORCA_LOCK_TIMEOUT_SECONDS` positive integer
-8. `.beads/` workspace exists and `br doctor` succeeds
-9. each non-running agent worktree is clean (`git status --porcelain` empty)
-10. `AGENT_REASONING_LEVEL` (if set) matches `[A-Za-z0-9._-]+`
-11. `PROMPT_TEMPLATE` exists
+2. `br --version` must execute successfully
+3. `count` positive integer
+4. `MAX_RUNS` non-negative integer
+5. `RUN_SLEEP_SECONDS` non-negative integer
+6. `ORCA_TIMING_METRICS` and `ORCA_COMPACT_SUMMARY` are `0|1`
+7. `ORCA_LOCK_SCOPE` matches `[A-Za-z0-9._-]+`
+8. `ORCA_LOCK_TIMEOUT_SECONDS` positive integer
+9. `.beads/` workspace exists and `br doctor` succeeds
+10. each non-running agent worktree is clean (`git status --porcelain` empty)
+11. `AGENT_REASONING_LEVEL` (if set) matches `[A-Za-z0-9._-]+`
+12. `PROMPT_TEMPLATE` exists
+13. `ORCA_QUEUE_WRITE_MAIN_PATH` and `ORCA_MERGE_MAIN_PATH` are executable
 
 Behavior:
 
@@ -191,10 +224,14 @@ Input/env validation:
 2. `MAX_RUNS` non-negative integer
 3. `RUN_SLEEP_SECONDS` non-negative integer
 4. `ORCA_TIMING_METRICS` and `ORCA_COMPACT_SUMMARY` are `0|1`
-5. `AGENT_REASONING_LEVEL` format validation when set
-6. `PROMPT_TEMPLATE` exists
-7. `ORCA_PRIMARY_REPO` points to a valid git worktree
-8. `ORCA_WITH_LOCK_PATH` points to an executable helper
+5. `ORCA_LOCK_SCOPE` matches `[A-Za-z0-9._-]+`
+6. `ORCA_LOCK_TIMEOUT_SECONDS` positive integer
+7. `AGENT_REASONING_LEVEL` format validation when set
+8. `PROMPT_TEMPLATE` exists
+9. `ORCA_PRIMARY_REPO` points to a valid git worktree
+10. `ORCA_WITH_LOCK_PATH` points to an executable helper
+11. `ORCA_QUEUE_WRITE_MAIN_PATH` points to an executable helper
+12. `ORCA_MERGE_MAIN_PATH` points to an executable helper
 
 Signal handling:
 
@@ -272,10 +309,10 @@ Discovery path is injected to agents as:
 - prompt placeholders: `__DISCOVERY_LOG_PATH__`, `__AGENT_DISCOVERY_LOG_PATH__`
 - env vars: `ORCA_DISCOVERY_LOG_PATH`, `ORCA_AGENT_DISCOVERY_LOG_PATH`
 
-Primary repo and lock helper are injected to agents as:
+Primary repo and helper paths are injected to agents as:
 
-- prompt placeholders: `__PRIMARY_REPO__`, `__ORCA_PRIMARY_REPO__`, `__WITH_LOCK_PATH__`, `__ORCA_WITH_LOCK_PATH__`
-- env vars: `ORCA_PRIMARY_REPO`, `ORCA_WITH_LOCK_PATH`
+- prompt placeholders: `__PRIMARY_REPO__`, `__ORCA_PRIMARY_REPO__`, `__WITH_LOCK_PATH__`, `__ORCA_WITH_LOCK_PATH__`, `__QUEUE_WRITE_MAIN_PATH__`, `__ORCA_QUEUE_WRITE_MAIN_PATH__`, `__MERGE_MAIN_PATH__`, `__ORCA_MERGE_MAIN_PATH__`
+- env vars: `ORCA_PRIMARY_REPO`, `ORCA_WITH_LOCK_PATH`, `ORCA_QUEUE_WRITE_MAIN_PATH`, `ORCA_MERGE_MAIN_PATH`
 
 ## Runtime Knobs
 
@@ -288,7 +325,9 @@ Primary repo and lock helper are injected to agents as:
 - `SESSION_PREFIX`: tmux session prefix (`bb-agent` default)
 - `PROMPT_TEMPLATE`: prompt template path (`<repo-root>/AGENT_PROMPT.md` default)
 - `AGENT_COMMAND`: full command for each run
-- `ORCA_LOCK_SCOPE`: default lock scope for `with-lock.sh` (`merge`)
-- `ORCA_LOCK_TIMEOUT_SECONDS`: lock timeout seconds (default `120`)
-- `ORCA_PRIMARY_REPO`: primary repository path used for lock-guarded merge/push operations (default repo root)
+- `ORCA_LOCK_SCOPE`: shared writer lock scope for all `main` write operations (claim publication and merge/push) (default `merge`)
+- `ORCA_LOCK_TIMEOUT_SECONDS`: lock timeout seconds for shared writer lock operations (default `120`)
+- `ORCA_PRIMARY_REPO`: primary repository path used for lock-guarded claim publication and merge/push operations (default repo root)
 - `ORCA_WITH_LOCK_PATH`: absolute path to lock helper passed to agents (default `<repo-root>/with-lock.sh`)
+- `ORCA_QUEUE_WRITE_MAIN_PATH`: absolute path to queue mutation helper passed to agents (default `<repo-root>/queue-write-main.sh`)
+- `ORCA_MERGE_MAIN_PATH`: absolute path to merge helper passed to agents (default `<repo-root>/merge-main.sh`)

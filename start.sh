@@ -31,6 +31,8 @@ ORCA_TIMING_METRICS="${ORCA_TIMING_METRICS:-1}"
 ORCA_COMPACT_SUMMARY="${ORCA_COMPACT_SUMMARY:-1}"
 ORCA_LOCK_SCOPE="${ORCA_LOCK_SCOPE:-merge}"
 ORCA_LOCK_TIMEOUT_SECONDS="${ORCA_LOCK_TIMEOUT_SECONDS:-120}"
+ORCA_QUEUE_WRITE_MAIN_PATH="${ORCA_QUEUE_WRITE_MAIN_PATH:-}"
+ORCA_MERGE_MAIN_PATH="${ORCA_MERGE_MAIN_PATH:-}"
 
 session_date_path() {
   local session_id="$1"
@@ -76,6 +78,12 @@ check_prerequisites() {
       missing+=("${cmd}")
     fi
   done
+
+  if command -v br >/dev/null 2>&1; then
+    if ! br --version >/dev/null 2>&1; then
+      missing+=("br (installed but not executable)")
+    fi
+  fi
 
   agent_command_bin="${AGENT_COMMAND%% *}"
   if [[ -n "${agent_command_bin}" ]] && ! command -v "${agent_command_bin}" >/dev/null 2>&1; then
@@ -190,6 +198,8 @@ check_prerequisites
 
 ROOT="$(git rev-parse --show-toplevel)"
 PROMPT_TEMPLATE="${PROMPT_TEMPLATE:-${ROOT}/AGENT_PROMPT.md}"
+ORCA_QUEUE_WRITE_MAIN_PATH="${ORCA_QUEUE_WRITE_MAIN_PATH:-${ROOT}/queue-write-main.sh}"
+ORCA_MERGE_MAIN_PATH="${ORCA_MERGE_MAIN_PATH:-${ROOT}/merge-main.sh}"
 
 if ! [[ "${COUNT}" =~ ^[1-9][0-9]*$ ]]; then
   echo "[start] count must be a positive integer: ${COUNT}" >&2
@@ -244,6 +254,16 @@ if [[ ! -f "${PROMPT_TEMPLATE}" ]]; then
   exit 1
 fi
 
+if [[ ! -x "${ORCA_QUEUE_WRITE_MAIN_PATH}" ]]; then
+  echo "[start] ORCA_QUEUE_WRITE_MAIN_PATH must be executable: ${ORCA_QUEUE_WRITE_MAIN_PATH}" >&2
+  exit 1
+fi
+
+if [[ ! -x "${ORCA_MERGE_MAIN_PATH}" ]]; then
+  echo "[start] ORCA_MERGE_MAIN_PATH must be executable: ${ORCA_MERGE_MAIN_PATH}" >&2
+  exit 1
+fi
+
 ensure_br_workspace
 
 if [[ "${MAX_RUNS}" -eq 0 ]]; then
@@ -268,7 +288,7 @@ for i in $(seq 1 "${COUNT}"); do
   fi
 
   echo "[start] launching ${session} in ${worktree}"
-  tmux_cmd="$(printf "cd %q && AGENT_NAME=%q AGENT_SESSION_ID=%q WORKTREE=%q AGENT_MODEL=%q AGENT_REASONING_LEVEL=%q AGENT_COMMAND=%q PROMPT_TEMPLATE=%q MAX_RUNS=%q RUN_SLEEP_SECONDS=%q ORCA_TIMING_METRICS=%q ORCA_COMPACT_SUMMARY=%q ORCA_LOCK_SCOPE=%q ORCA_LOCK_TIMEOUT_SECONDS=%q %q" \
+  tmux_cmd="$(printf "cd %q && AGENT_NAME=%q AGENT_SESSION_ID=%q WORKTREE=%q AGENT_MODEL=%q AGENT_REASONING_LEVEL=%q AGENT_COMMAND=%q PROMPT_TEMPLATE=%q MAX_RUNS=%q RUN_SLEEP_SECONDS=%q ORCA_TIMING_METRICS=%q ORCA_COMPACT_SUMMARY=%q ORCA_LOCK_SCOPE=%q ORCA_LOCK_TIMEOUT_SECONDS=%q ORCA_QUEUE_WRITE_MAIN_PATH=%q ORCA_MERGE_MAIN_PATH=%q %q" \
     "${ROOT}" \
     "agent-${i}" \
     "${session_id}" \
@@ -283,6 +303,8 @@ for i in $(seq 1 "${COUNT}"); do
     "${ORCA_COMPACT_SUMMARY}" \
     "${ORCA_LOCK_SCOPE}" \
     "${ORCA_LOCK_TIMEOUT_SECONDS}" \
+    "${ORCA_QUEUE_WRITE_MAIN_PATH}" \
+    "${ORCA_MERGE_MAIN_PATH}" \
     "${SCRIPT_DIR}/agent-loop.sh")"
   tmux new-session -d -s "${session}" "${tmux_cmd}"
 

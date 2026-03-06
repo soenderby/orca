@@ -16,7 +16,8 @@ Complete exactly one issue end-to-end in this run, or return `no_work`.
 2. Do not start coding before a successful claim.
 3. Use `br` for queue state changes (never manually edit `.beads/issues.jsonl`).
 4. Use `ORCA_QUEUE_WRITE_MAIN_PATH` for all queue mutations and `ORCA_MERGE_MAIN_PATH` for code integration.
-5. Always write run summary JSON.
+5. Do not push run branches to origin during normal local operation.
+6. Always write run summary JSON.
 
 ## Queue Sync + Concurrency Model (Read Carefully)
 
@@ -101,11 +102,7 @@ Behavior enforced by helper:
 3. hard failure if source branch contains `.beads` changes
 4. merge failure cleanup (`merge --abort` / reset)
 
-If upstream is missing for your branch:
-
-```bash
-git push -u origin "$(git branch --show-current)"
-```
+Do not push run branches to origin in normal local Orca operation.
 
 ## Run Summary JSON (Required)
 

@@ -8,7 +8,7 @@ usage() {
 Usage:
   merge-main.sh [options]
 
-Merges a source branch into ORCA_PRIMARY_REPO/main under the shared writer lock.
+Merges a local source branch into ORCA_PRIMARY_REPO/main under the shared writer lock.
 Rejects source branches that carry .beads changes.
 
 Options:
@@ -147,10 +147,9 @@ fi
     git -C "$repo" pull --ff-only origin main
 
     if ! git -C "$repo" rev-parse --verify --quiet "${src_branch}^{commit}" >/dev/null; then
-      if ! git -C "$repo" fetch origin "${src_branch}:${src_branch}" >/dev/null 2>&1; then
-        echo "[merge-main] source branch not available locally or on origin: ${src_branch}" >&2
-        exit 1
-      fi
+      echo "[merge-main] source branch must exist locally in shared repo: ${src_branch}" >&2
+      echo "[merge-main] local Orca flow should merge local run branches without pushing them to origin" >&2
+      exit 1
     fi
 
     beads_diff="$(git -C "$repo" diff --name-only "main...${src_branch}" -- .beads || true)"

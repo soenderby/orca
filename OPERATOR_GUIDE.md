@@ -71,6 +71,8 @@ Also ensure:
 
 Queue mutation and merge/push share one writer lock scope (`ORCA_LOCK_SCOPE`, default `merge`) so all local `main` writes serialize.
 
+Run branches (`swarm/agent-*`, `swarm/*-run-*`) are local transport state in this model; do not push them to origin during normal local operation.
+
 Cross-machine note: lock files are local to each clone. Global contention resolves through git publication order on `main`; failed claim publication should be treated as a race and retried with a fresh import.
 
 ## Core Workflow

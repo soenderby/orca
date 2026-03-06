@@ -53,7 +53,8 @@ Orca with `br` uses git-based async queue collaboration (`.beads/issues.jsonl`),
    - helper performs import/flush around queue mutations (`br sync --import-only`, `br sync --flush-only`)
    - track `.beads/` in git for cross-machine collaboration
 6. Claim publication and merge/push both use the shared writer lock (`ORCA_LOCK_SCOPE`, default `merge`).
-7. Cross-machine note: lock files are local. Concurrency across machines is resolved by git publication order on `main` (losing claim attempts must re-import and pick another issue).
+7. Run branches are local transport state; do not push them to origin in normal local Orca operation.
+8. Cross-machine note: lock files are local. Concurrency across machines is resolved by git publication order on `main` (losing claim attempts must re-import and pick another issue).
 
 ## Commands
 
@@ -86,7 +87,7 @@ In no particular order:
 
 Orca is a `tmux`-backed multi-agent loop with one persistent git worktree per agent:
 
-1. `setup-worktrees.sh` creates missing `worktrees/agent-N` on branch `swarm/agent-N` from the detected base ref (ignores stale `origin/swarm/agent-N` by default) and reuses existing worktrees as-is.
+1. `setup-worktrees.sh` creates missing `worktrees/agent-N` on branch `swarm/agent-N` from the detected base ref, treats `swarm/agent-N` as local transport state, and ignores any `origin/swarm/agent-N` refs.
 2. `start.sh` launches one tmux session per agent, injects runtime env, and validates the local `br` queue workspace.
 3. `agent-loop.sh` runs one agent pass per iteration, creates a unique per-run branch, writes per-run logs/metrics, and parses the agent summary JSON.
 4. `AGENT_PROMPT.md` defines the agent contract for issue lifecycle, merge, discovery, and summary output.
@@ -333,4 +334,3 @@ Primary repo and helper paths are injected to agents as:
 - `ORCA_QUEUE_WRITE_MAIN_PATH`: absolute path to queue mutation helper passed to agents (default `<repo-root>/queue-write-main.sh`)
 - `ORCA_MERGE_MAIN_PATH`: absolute path to merge helper passed to agents (default `<repo-root>/merge-main.sh`)
 - `ORCA_BASE_REF`: optional explicit base ref for new worktrees (default: detect from `origin/HEAD`, then `origin/main`, then `main`, then current branch)
-- `ORCA_REUSE_REMOTE_AGENT_BRANCHES`: set to `1` to create missing worktrees from existing `origin/swarm/agent-N` branches; default `0` (create from base ref)

@@ -5,15 +5,9 @@ COUNT="${1:-2}"
 ROOT="$(git rev-parse --show-toplevel)"
 origin_available=0
 BASE_REF=""
-ORCA_REUSE_REMOTE_AGENT_BRANCHES="${ORCA_REUSE_REMOTE_AGENT_BRANCHES:-0}"
 
 if ! [[ "${COUNT}" =~ ^[1-9][0-9]*$ ]]; then
   echo "[setup] count must be a positive integer: ${COUNT}" >&2
-  exit 1
-fi
-
-if ! [[ "${ORCA_REUSE_REMOTE_AGENT_BRANCHES}" =~ ^[01]$ ]]; then
-  echo "[setup] ORCA_REUSE_REMOTE_AGENT_BRANCHES must be 0 or 1: ${ORCA_REUSE_REMOTE_AGENT_BRANCHES}" >&2
   exit 1
 fi
 
@@ -22,7 +16,7 @@ mkdir -p "${ROOT}/worktrees"
 if git remote get-url origin >/dev/null 2>&1; then
   origin_available=1
 else
-  echo "[setup] warning: no origin remote configured; upstream setup skipped" >&2
+  echo "[setup] warning: no origin remote configured; remote branch checks skipped" >&2
 fi
 
 detect_base_ref() {
@@ -62,68 +56,23 @@ detect_base_ref() {
   exit 1
 }
 
-ensure_upstream() {
-  local worktree_path="$1"
-  local branch_name="$2"
-  local upstream_ref
-  local upstream_remote
-  local upstream_branch
-  local ls_remote_status
-  local current_branch=""
+branch_in_any_worktree() {
+  local branch_name="$1"
 
-  if ! git -C "${worktree_path}" show-ref --verify --quiet "refs/heads/${branch_name}"; then
-    current_branch="$(git -C "${worktree_path}" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
-    if [[ -n "${current_branch}" && "${current_branch}" != "HEAD" ]]; then
-      echo "[setup] warning: ${branch_name} not present in ${worktree_path}; using existing checkout ${current_branch}"
-    else
-      echo "[setup] warning: ${branch_name} not present in ${worktree_path}; skipping upstream setup"
-    fi
-    return 0
+  git worktree list --porcelain \
+    | awk -v target="refs/heads/${branch_name}" '
+        $1 == "branch" && $2 == target { found = 1 }
+        END { exit(found ? 0 : 1) }
+      '
+}
+
+warn_if_remote_agent_branch_exists() {
+  local branch_name="$1"
+
+  if [[ "${origin_available}" -eq 1 ]] && git ls-remote --exit-code --heads origin "${branch_name}" >/dev/null 2>&1; then
+    echo "[setup] note: remote branch origin/${branch_name} exists but is ignored"
+    echo "[setup] note: agent branches are treated as local transport state"
   fi
-
-  upstream_ref="$(git -C "${worktree_path}" for-each-ref --format='%(upstream:short)' "refs/heads/${branch_name}")"
-  if [[ -n "${upstream_ref}" ]]; then
-    upstream_remote="${upstream_ref%%/*}"
-    upstream_branch="${upstream_ref#*/}"
-    if git -C "${worktree_path}" ls-remote --exit-code --heads "${upstream_remote}" "${upstream_branch}" >/dev/null 2>&1; then
-      echo "[setup] upstream exists for ${branch_name}: ${upstream_ref}"
-      return 0
-    fi
-    ls_remote_status=$?
-
-    if [[ "${ls_remote_status}" -ne 2 ]]; then
-      echo "[setup] warning: could not verify upstream ref for ${branch_name}: ${upstream_ref}; proceeding without restore" >&2
-      return 0
-    fi
-
-    echo "[setup] upstream configured but remote ref missing for ${branch_name}: ${upstream_ref}; recreating"
-    if git -C "${worktree_path}" push -u "${upstream_remote}" "${branch_name}" >/dev/null 2>&1; then
-      echo "[setup] upstream restored for ${branch_name}: ${upstream_remote}/${branch_name}"
-      return 0
-    fi
-
-    echo "[setup] failed to restore missing upstream ref for ${branch_name}: ${upstream_ref}" >&2
-    return 1
-  fi
-
-  if [[ "${origin_available}" -eq 0 ]]; then
-    echo "[setup] warning: cannot set upstream for ${branch_name} without origin remote" >&2
-    return 0
-  fi
-
-  if git -C "${worktree_path}" branch --set-upstream-to "origin/${branch_name}" "${branch_name}" >/dev/null 2>&1; then
-    echo "[setup] upstream set for ${branch_name}: origin/${branch_name}"
-    return 0
-  fi
-
-  echo "[setup] creating upstream for ${branch_name} via push"
-  if git -C "${worktree_path}" push -u origin "${branch_name}" >/dev/null 2>&1; then
-    echo "[setup] upstream set for ${branch_name}: origin/${branch_name}"
-    return 0
-  fi
-
-  echo "[setup] failed to set upstream for ${branch_name}; check remote access and branch state" >&2
-  return 1
 }
 
 create_worktree_if_missing() {
@@ -137,27 +86,24 @@ create_worktree_if_missing() {
     return 0
   fi
 
-  if git show-ref --verify --quiet "refs/heads/${branch}"; then
-    echo "[setup] creating ${rel_path} from local branch ${branch}"
-    git worktree add "${abs_path}" "${branch}"
-    return 0
-  fi
+  warn_if_remote_agent_branch_exists "${branch}"
 
-  if [[ "${origin_available}" -eq 1 ]] && git ls-remote --exit-code --heads origin "${branch}" >/dev/null 2>&1; then
-    if [[ "${ORCA_REUSE_REMOTE_AGENT_BRANCHES}" -eq 1 ]]; then
-      echo "[setup] creating ${rel_path} from origin/${branch} (ORCA_REUSE_REMOTE_AGENT_BRANCHES=1)"
-      git worktree add -b "${branch}" "${abs_path}" "origin/${branch}"
-      return 0
+  if git show-ref --verify --quiet "refs/heads/${branch}"; then
+    if branch_in_any_worktree "${branch}"; then
+      echo "[setup] branch ${branch} is already checked out in another worktree; cannot recreate ${rel_path}" >&2
+      return 1
     fi
 
-    echo "[setup] remote branch origin/${branch} exists but will be ignored by default"
-    echo "[setup] creating ${rel_path} from ${base_ref} (set ORCA_REUSE_REMOTE_AGENT_BRANCHES=1 to reuse remote agent branches)"
-    git worktree add -b "${branch}" "${abs_path}" "${base_ref}"
+    echo "[setup] resetting local ${branch} to ${base_ref} before creating ${rel_path}"
+    git branch -f "${branch}" "${base_ref}"
+    git branch --unset-upstream "${branch}" >/dev/null 2>&1 || true
+    git worktree add "${abs_path}" "${branch}"
     return 0
   fi
 
   echo "[setup] creating ${rel_path} (new branch: ${branch} from ${base_ref})"
   git worktree add -b "${branch}" "${abs_path}" "${base_ref}"
+  git -C "${abs_path}" branch --unset-upstream "${branch}" >/dev/null 2>&1 || true
 }
 
 BASE_REF="$(detect_base_ref)"
@@ -170,7 +116,6 @@ for i in $(seq 1 "${COUNT}"); do
   branch="swarm/${name}"
 
   create_worktree_if_missing "${abs_path}" "${rel_path}" "${branch}" "${BASE_REF}"
-  ensure_upstream "${abs_path}" "${branch}"
 done
 
 echo "[setup] done"

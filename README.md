@@ -187,7 +187,8 @@ Startup checks:
 10. each non-running agent worktree is clean (`git status --porcelain` empty)
 11. `AGENT_REASONING_LEVEL` (if set) matches `[A-Za-z0-9._-]+`
 12. `PROMPT_TEMPLATE` exists
-13. `ORCA_QUEUE_WRITE_MAIN_PATH` and `ORCA_MERGE_MAIN_PATH` are executable
+13. `ORCA_PRIMARY_REPO` points to a valid git worktree
+14. `ORCA_WITH_LOCK_PATH`, `ORCA_QUEUE_WRITE_MAIN_PATH`, and `ORCA_MERGE_MAIN_PATH` are executable
 
 Behavior:
 

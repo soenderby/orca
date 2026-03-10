@@ -51,6 +51,7 @@ Operating stance: autonomy with explicit protocol guidance (Option C; see `docs/
 - `start [count] [--runs N|--continuous] [--reasoning-level LEVEL]`
 - `stop`
 - `status`
+- `gc-run-branches [--apply] [--base REF]`
 - `setup-worktrees [count]`
 - `with-lock [--scope NAME] [--timeout SECONDS] -- <command> [args...]`
 - `queue-write-main [options] -- <queue-command> [args...]`
@@ -61,6 +62,7 @@ Helper scripts (direct invocation):
 - `./with-lock.sh [--scope NAME] [--timeout SECONDS] -- <command> [args...]`
 - `./queue-write-main.sh [options] -- <queue-command> [args...]`
 - `./merge-main.sh [--source BRANCH] [options]`
+- `./gc-run-branches.sh [--apply] [--base REF] [--repo PATH]`
 
 ## Improvement Policy
 
@@ -77,8 +79,9 @@ Orca is a `tmux`-backed multi-agent loop with one persistent git worktree per ag
 5. `with-lock.sh` provides the shared lock primitive used by queue/merge helpers.
 6. `queue-write-main.sh` performs lock-guarded queue mutations on `ORCA_PRIMARY_REPO/main`.
 7. `merge-main.sh` performs lock-guarded merge/push and rejects `.beads`-carrying source branches.
-8. `status.sh` provides health and observability snapshots, including `br` workspace checks.
-9. `stop.sh` terminates active sessions.
+8. `gc-run-branches.sh` safely prunes stale local `swarm/*-run-*` branches with dry-run by default.
+9. `status.sh` provides health and observability snapshots, including `br` workspace checks.
+10. `stop.sh` terminates active sessions.
 
 ## File Roles
 
@@ -89,6 +92,7 @@ Orca is a `tmux`-backed multi-agent loop with one persistent git worktree per ag
 - `with-lock.sh`: scoped lock wrapper primitive for serialized shared writes
 - `queue-write-main.sh`: lock-guarded queue mutation helper that imports/flushes and commits `.beads/` on `main`
 - `merge-main.sh`: lock-guarded merge helper with `.beads` source-branch guard and merge-failure cleanup
+- `gc-run-branches.sh`: safe stale run-branch pruning helper (dry-run default, protects active worktrees/sessions)
 - `status.sh`: displays sessions, worktrees, queue snapshots, logs, and metrics
 - `stop.sh`: stops active agent sessions
 - `AGENT_PROMPT.md`: agent instruction contract used by `agent-loop.sh`

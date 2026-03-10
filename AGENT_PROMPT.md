@@ -19,14 +19,12 @@ Complete exactly one issue end-to-end in this run, or return `no_work`.
 5. Do not push run branches to origin during normal local operation.
 6. Always write run summary JSON.
 
-## Queue Sync + Concurrency Model (Read Carefully)
+## Queue Discipline (Required)
 
-1. `br` collaboration is git-based and async (`issues.jsonl`), not a central queue server.
-2. `br --claim` is atomic for one SQLite DB snapshot, but Orca agents run in separate worktrees.
-3. To avoid duplicate claims across parallel agents, publish claims via the primary repo under the same writer lock scope used for merge/push before coding.
-4. Queue mutations must be executed on `ORCA_PRIMARY_REPO/main` through `ORCA_QUEUE_WRITE_MAIN_PATH`; do not carry `.beads` changes in your run branch.
-5. Keep queue updates explicit and synced (`br sync --import-only` before selection, `br sync --flush-only` inside `ORCA_QUEUE_WRITE_MAIN_PATH`).
-6. Never use `--no-auto-import`, `--no-auto-flush`, or `--allow-stale` in normal runs.
+1. Publish claims before coding via `ORCA_QUEUE_WRITE_MAIN_PATH` on `ORCA_PRIMARY_REPO/main`.
+2. Perform all queue mutations via `ORCA_QUEUE_WRITE_MAIN_PATH`.
+3. Never carry `.beads` changes in run branches.
+4. Never use `--no-auto-import`, `--no-auto-flush`, or `--allow-stale` in normal runs.
 
 ## Required Per-Run Queue Workflow
 
@@ -54,9 +52,9 @@ ISSUE_ID="<candidate-id>"
 ## Execution Workflow
 
 1. Read context before implementation:
-   - `AGENTS.md` (mandatory)
+   - issue-linked files/docs (mandatory)
+   - `docs/design.md` (when making process/policy decisions)
    - `README.md` and `OPERATOR_GUIDE.md` (when needed)
-   - issue-linked files/docs
 2. Restate acceptance criteria from `br show <id> --json`.
 3. Implement minimal, scoped changes for the claimed issue.
 4. Run relevant validation for your change.
@@ -72,16 +70,13 @@ ISSUE_ID="<candidate-id>"
 
 When additional work is discovered:
 
-1. `blocking_defect`
-   - create blocking issue via `ORCA_QUEUE_WRITE_MAIN_PATH`: `br create "<title>" --type bug --priority 1 --description "<impact + context>" --json`
-   - model dependency via `ORCA_QUEUE_WRITE_MAIN_PATH`: current issue depends on blocker (`br dep add <current-id> <blocking-id>`)
+1. Create follow-up issues via `ORCA_QUEUE_WRITE_MAIN_PATH` (never by editing `.beads` directly).
+2. If discovery blocks current issue completion:
+   - create a blocking issue
+   - add dependency (`current -> blocker`) via `br dep add`
    - keep current issue open (`in_progress` or `blocked`)
-2. `non_blocking_improvement`
-   - create follow-up issue via `ORCA_QUEUE_WRITE_MAIN_PATH` with `discovered-from:<current-id>` in description
-   - do not expand current run scope
-3. `tooling_improvement`
-   - create follow-up tooling issue via `ORCA_QUEUE_WRITE_MAIN_PATH`
-   - append concise note to `__DISCOVERY_LOG_PATH__`
+3. If non-blocking, create a follow-up and keep current run scope unchanged.
+4. For tooling discoveries, also append a concise note to `__DISCOVERY_LOG_PATH__`.
 
 For every created follow-up issue:
 - include clear title, impact, and concrete next step

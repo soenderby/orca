@@ -4,13 +4,13 @@ Orca is a local execution harness for running autonomous coding agents in parall
 
 Orca is not an agent framework. It does not abstract over LLM providers, manage prompt chains, or provide agent-building primitives. It manages the environment agents run in, not the agents themselves.
 
-The execution layer works. In past use, failures and rework traced primarily to task specification quality — unclear intent, missing constraints, absent design context — not to execution mechanics. Providing agents with specific tools for recurring tasks was another significant factor in effectiveness.
+The execution layer works. In past use, failures and rework traced primarily to task specification quality — unclear intent, missing constraints, absent design context — not to execution mechanics. Providing agents with specific tools for recurring tasks was the other significant factor in effectiveness.
 
 ## Design Principles
 
-### 1. The harness handles transport and tools; agents handle decisions
+### 1. The harness handles transport and coordination tools; agents handle decisions
 
-The harness manages loops, worktrees, artifacts, locks, coordination, and provides tools for agents to use. It does not decide what agents should work on, how they should approach a problem, or what constitutes good output. Any harness change that encodes task policy or implementation preference is wrong.
+The harness manages loops, worktrees, artifacts, locks, and coordination — and provides tools that help agents coordinate safely (lock helpers, queue mutation helpers, merge helpers). It does not decide what agents should work on, how they should approach a problem, or what constitutes good output. Any harness change that encodes task policy or implementation preference is wrong.
 
 ### 2. Correctness invariants are enforced mechanically, not instructionally
 
@@ -28,11 +28,11 @@ Everything else is policy and must remain adjustable.
 
 A large mandatory prompt crowds out task context and anchors agents on prescribed approaches. The agent coordination protocol (how to claim, merge, report) must be short and stable. Operational knowledge and guidance are optional — agents read them when relevant and ignore them when not.
 
-Any growth in mandatory context must be justified by a repeated correctness failure, not by a desire to improve quality.
+Growth in mandatory context must be justified by a correctness need, not by a desire to improve quality.
 
 ### 4. Do not encode reasoning in the harness
 
-The harness is a thin, deterministic shell. Ranking, scoring, selecting, classifying, inferring complexity, deciding what should happen next — these are reasoning tasks that belong to the model, not to shell scripts or heuristics. When the harness reaches a decision point, the answer is to give the decision to an agent, not to write a conditional.
+The harness is a thin, deterministic shell. Ranking, scoring, selecting, classifying, inferring complexity, deciding what should happen next at runtime — these are reasoning tasks that belong to the model, not to shell scripts or heuristics. When the harness reaches a runtime decision point, the answer is to give the decision to an agent, not to write a conditional.
 
 ### 5. Every run must leave a queryable trace
 

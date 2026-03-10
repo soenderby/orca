@@ -239,8 +239,8 @@ if [[ -f "${METRICS_FILE}" && -s "${METRICS_FILE}" && -r "${METRICS_FILE}" ]] &&
           (.issue_id // "none"),
           ((.durations_seconds.iteration_total // 0) | tostring),
           (if .tokens_used == null then "n/a" else (.tokens_used | tostring) end),
-          (.loop_action // "n/a"),
-          (.loop_action_reason // "")
+          ((.summary.loop_action // .loop_action // "n/a") | tostring),
+          ((.summary.loop_action_reason // .loop_action_reason // "") | tostring)
         ]
       | join("\u001f")
     ' "${METRICS_FILE}" 2>/dev/null || true

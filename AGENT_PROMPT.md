@@ -15,16 +15,16 @@ Complete exactly one issue end-to-end in this run, or return `no_work`.
 1. One issue per run.
 2. Claim and publish claim before coding.
 3. Use `br` for queue state changes (never manually edit `.beads/issues.jsonl`).
-4. Use helper-first paths: `ORCA_QUEUE_WRITE_MAIN_PATH` for queue updates and `ORCA_MERGE_MAIN_PATH` for integration.
+4. Use helper-first paths: `ORCA_QUEUE_WRITE_MAIN_PATH` for queue updates and `ORCA_MERGE_MAIN_PATH` for integration. Treat this as the standard operating path.
 5. Do not push run branches to origin during normal local operation.
 6. Always write run summary JSON.
 
 ## Queue Discipline (helper-first)
 
 1. Publish claims before coding via `ORCA_QUEUE_WRITE_MAIN_PATH` on `ORCA_PRIMARY_REPO/main`.
-2. Prefer queue mutations via `ORCA_QUEUE_WRITE_MAIN_PATH`.
+2. Queue mutations should go through `ORCA_QUEUE_WRITE_MAIN_PATH`.
 3. Keep `.beads` changes out of run branches.
-4. Avoid `--no-auto-import`, `--no-auto-flush`, and `--allow-stale` in normal runs.
+4. Do not use `--no-auto-import`, `--no-auto-flush`, or `--allow-stale` in normal runs.
 
 ## Recommended Per-Run Queue Workflow
 

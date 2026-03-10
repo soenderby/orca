@@ -181,14 +181,13 @@ Startup checks:
 4. `MAX_RUNS` non-negative integer
 5. `RUN_SLEEP_SECONDS` non-negative integer
 6. `ORCA_TIMING_METRICS` and `ORCA_COMPACT_SUMMARY` are `0|1`
-7. `ORCA_PROTOCOL_MODE` is `enable|enforce`
-8. `ORCA_LOCK_SCOPE` matches `[A-Za-z0-9._-]+`
-9. `ORCA_LOCK_TIMEOUT_SECONDS` positive integer
-10. `.beads/` workspace exists and `br doctor` succeeds
-11. each non-running agent worktree is clean (`git status --porcelain` empty)
-12. `AGENT_REASONING_LEVEL` (if set) matches `[A-Za-z0-9._-]+`
-13. `PROMPT_TEMPLATE` exists
-14. `ORCA_QUEUE_WRITE_MAIN_PATH` and `ORCA_MERGE_MAIN_PATH` are executable
+7. `ORCA_LOCK_SCOPE` matches `[A-Za-z0-9._-]+`
+8. `ORCA_LOCK_TIMEOUT_SECONDS` positive integer
+9. `.beads/` workspace exists and `br doctor` succeeds
+10. each non-running agent worktree is clean (`git status --porcelain` empty)
+11. `AGENT_REASONING_LEVEL` (if set) matches `[A-Za-z0-9._-]+`
+12. `PROMPT_TEMPLATE` exists
+13. `ORCA_QUEUE_WRITE_MAIN_PATH` and `ORCA_MERGE_MAIN_PATH` are executable
 
 Behavior:
 
@@ -208,15 +207,14 @@ Input/env validation:
 2. `MAX_RUNS` non-negative integer
 3. `RUN_SLEEP_SECONDS` non-negative integer
 4. `ORCA_TIMING_METRICS` and `ORCA_COMPACT_SUMMARY` are `0|1`
-5. `ORCA_PROTOCOL_MODE` is `enable|enforce`
-6. `ORCA_LOCK_SCOPE` matches `[A-Za-z0-9._-]+`
-7. `ORCA_LOCK_TIMEOUT_SECONDS` positive integer
-8. `AGENT_REASONING_LEVEL` format validation when set
-9. `PROMPT_TEMPLATE` exists
-10. `ORCA_PRIMARY_REPO` points to a valid git worktree
-11. `ORCA_WITH_LOCK_PATH` points to an executable helper
-12. `ORCA_QUEUE_WRITE_MAIN_PATH` points to an executable helper
-13. `ORCA_MERGE_MAIN_PATH` points to an executable helper
+5. `ORCA_LOCK_SCOPE` matches `[A-Za-z0-9._-]+`
+6. `ORCA_LOCK_TIMEOUT_SECONDS` positive integer
+7. `AGENT_REASONING_LEVEL` format validation when set
+8. `PROMPT_TEMPLATE` exists
+9. `ORCA_PRIMARY_REPO` points to a valid git worktree
+10. `ORCA_WITH_LOCK_PATH` points to an executable helper
+11. `ORCA_QUEUE_WRITE_MAIN_PATH` points to an executable helper
+12. `ORCA_MERGE_MAIN_PATH` points to an executable helper
 
 Signal handling:
 
@@ -278,9 +276,8 @@ Metrics stream:
 Each metrics row includes:
 
 1. `harness_version` (`git describe --always --dirty` from the harness repo)
-2. `protocol_mode` (`enable|enforce`)
-3. `summary_schema_status` (`valid|invalid|not_checked`)
-4. `summary_schema_reason_codes` (array of deterministic validation codes when invalid)
+2. `summary_schema_status` (`valid|invalid|not_checked`)
+3. `summary_schema_reason_codes` (array of deterministic validation codes when invalid)
 
 Per-agent discovery notes:
 
@@ -298,7 +295,7 @@ Discovery path is injected to agents as:
 Primary repo and helper paths are injected to agents as:
 
 - prompt placeholders: `__PRIMARY_REPO__`, `__ORCA_PRIMARY_REPO__`, `__WITH_LOCK_PATH__`, `__ORCA_WITH_LOCK_PATH__`, `__QUEUE_WRITE_MAIN_PATH__`, `__ORCA_QUEUE_WRITE_MAIN_PATH__`, `__MERGE_MAIN_PATH__`, `__ORCA_MERGE_MAIN_PATH__`
-- env vars: `ORCA_PRIMARY_REPO`, `ORCA_WITH_LOCK_PATH`, `ORCA_QUEUE_WRITE_MAIN_PATH`, `ORCA_MERGE_MAIN_PATH`, `ORCA_PROTOCOL_MODE`
+- env vars: `ORCA_PRIMARY_REPO`, `ORCA_WITH_LOCK_PATH`, `ORCA_QUEUE_WRITE_MAIN_PATH`, `ORCA_MERGE_MAIN_PATH`
 
 ## Runtime Knobs
 
@@ -308,7 +305,6 @@ Primary repo and helper paths are injected to agents as:
 - `RUN_SLEEP_SECONDS`: sleep between iterations (default `2`)
 - `ORCA_TIMING_METRICS`: emit metrics rows (`1` default)
 - `ORCA_COMPACT_SUMMARY`: emit markdown summaries (`1` default)
-- `ORCA_PROTOCOL_MODE`: protocol stance (`enable` default, accepts `enable|enforce`)
 - `SESSION_PREFIX`: tmux session prefix (`orca-agent` default)
 - `PROMPT_TEMPLATE`: prompt template path (`<repo-root>/AGENT_PROMPT.md` default)
 - `AGENT_COMMAND`: full command for each run

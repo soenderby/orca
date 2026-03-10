@@ -302,7 +302,7 @@ Primary repo and helper paths are injected to agents as:
 - `RUN_SLEEP_SECONDS`: sleep between iterations (default `2`)
 - `ORCA_TIMING_METRICS`: emit metrics rows (`1` default)
 - `ORCA_COMPACT_SUMMARY`: emit markdown summaries (`1` default)
-- `SESSION_PREFIX`: tmux session prefix (`bb-agent` default)
+- `SESSION_PREFIX`: tmux session prefix (`orca-agent` default)
 - `PROMPT_TEMPLATE`: prompt template path (`<repo-root>/AGENT_PROMPT.md` default)
 - `AGENT_COMMAND`: full command for each run
 - `ORCA_LOCK_SCOPE`: shared writer lock scope for all `main` write operations (claim publication and merge/push) (default `merge`)

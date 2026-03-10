@@ -70,13 +70,13 @@ Cross-machine note: lock files are local to each clone. Global contention resolv
 ### 1) Setup
 
 ```bash
-./bb orca setup-worktrees 2
+./orca.sh setup-worktrees 2
 ```
 
 ### 2) Start Loop Sessions
 
 ```bash
-./bb orca start 2 --continuous
+./orca.sh start 2 --continuous
 ```
 
 `orca start` validates the local `br` workspace (`.beads/`) and fails fast when the queue workspace is missing/unhealthy or a non-running agent worktree is dirty.
@@ -84,13 +84,13 @@ Cross-machine note: lock files are local to each clone. Global contention resolv
 Bounded mode:
 
 ```bash
-./bb orca start 2 --runs 5
+./orca.sh start 2 --runs 5
 ```
 
 ### 3) Monitor
 
 ```bash
-./bb orca status
+./orca.sh status
 find agent-logs/sessions -type f | sort | tail -n 20
 tail -n 10 agent-logs/metrics.jsonl
 ```
@@ -100,7 +100,7 @@ tail -n 10 agent-logs/metrics.jsonl
 ### 4) Stop
 
 ```bash
-./bb orca stop
+./orca.sh stop
 ```
 
 `orca stop` stops running Orca sessions (if any).
@@ -132,8 +132,8 @@ Orca injects `ORCA_WITH_LOCK_PATH`, `ORCA_PRIMARY_REPO`, `ORCA_LOCK_SCOPE`, `ORC
 ```bash
 git pull --rebase
 br sync --import-only
-./bb orca start 2 --continuous
-./bb orca status
+./orca.sh start 2 --continuous
+./orca.sh status
 ```
 
 ### Live Checks
@@ -147,7 +147,7 @@ br list --status closed --sort updated --reverse --limit 20
 Attach to a session:
 
 ```bash
-tmux attach -t bb-agent-1
+tmux attach -t orca-agent-1
 # detach: Ctrl+b then d
 ```
 
@@ -156,14 +156,14 @@ tmux attach -t bb-agent-1
 Scale up:
 
 ```bash
-./bb orca start 3 --continuous
+./orca.sh start 3 --continuous
 ```
 
 Scale down cleanly:
 
 ```bash
-./bb orca stop
-./bb orca start 2 --continuous
+./orca.sh stop
+./orca.sh start 2 --continuous
 ```
 
 ## Failure Handling
@@ -184,7 +184,7 @@ Scale down cleanly:
 5. Run branch setup failure due dirty worktree:
    - check `git -C worktrees/agent-N status --short`
    - inspect for leftover `.beads/` or partial code edits
-   - commit/stash/discard changes in that worktree, then rerun `./bb orca start`
+   - commit/stash/discard changes in that worktree, then rerun `./orca.sh start`
 
 ## Safety Rules
 

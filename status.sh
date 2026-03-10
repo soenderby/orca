@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
-SESSION_PREFIX="${SESSION_PREFIX:-bb-agent}"
+SESSION_PREFIX="${SESSION_PREFIX:-orca-agent}"
 METRICS_FILE="${ROOT}/agent-logs/metrics.jsonl"
 ORCA_STATUS_STALE_SECONDS="${ORCA_STATUS_STALE_SECONDS:-900}"
 ORCA_STATUS_CLAIMED_LIMIT="${ORCA_STATUS_CLAIMED_LIMIT:-20}"

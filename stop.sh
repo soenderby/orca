@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SESSION_PREFIX="${SESSION_PREFIX:-bb-agent}"
+SESSION_PREFIX="${SESSION_PREFIX:-orca-agent}"
 
 sessions="$(tmux ls -F '#S' 2>/dev/null | grep "^${SESSION_PREFIX}-" || true)"
 

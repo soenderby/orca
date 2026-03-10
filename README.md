@@ -57,7 +57,6 @@ Helper scripts (direct invocation):
 - `./with-lock.sh [--scope NAME] [--timeout SECONDS] -- <command> [args...]`
 - `./queue-write-main.sh [options] -- <queue-command> [args...]`
 - `./merge-main.sh [--source BRANCH] [options]`
-- `./check-runtime-boundaries.sh` (assert runtime scripts do not depend on stale `scripts/orca/` paths or legacy `bd`/Dolt references)
 
 ## Improvement Policy
 
@@ -86,7 +85,6 @@ Orca is a `tmux`-backed multi-agent loop with one persistent git worktree per ag
 - `with-lock.sh`: scoped lock wrapper primitive for serialized shared writes
 - `queue-write-main.sh`: lock-guarded queue mutation helper that imports/flushes and commits `.beads/` on `main`
 - `merge-main.sh`: lock-guarded merge helper with `.beads` source-branch guard and merge-failure cleanup
-- `check-runtime-boundaries.sh`: verifies runtime script isolation from stale path prefixes and legacy queue references
 - `status.sh`: displays sessions, worktrees, queue snapshots, logs, and metrics
 - `stop.sh`: stops active agent sessions
 - `AGENT_PROMPT.md`: agent instruction contract used by `agent-loop.sh`

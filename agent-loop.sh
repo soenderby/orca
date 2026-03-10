@@ -269,6 +269,20 @@ warn_if_main_refs_diverge() {
   fi
 }
 
+validate_explicit_base_ref() {
+  if [[ -z "${ORCA_BASE_REF:-}" ]]; then
+    return 0
+  fi
+
+  if git rev-parse --verify --quiet "${ORCA_BASE_REF}^{commit}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  log "fatal: ORCA_BASE_REF does not resolve to a commit: ${ORCA_BASE_REF}"
+  log "fatal: set ORCA_BASE_REF to a valid ref (for example: main, origin/main, or a commit SHA)"
+  return 1
+}
+
 prepare_run_branch() {
   local base_ref
   local worktree_status
@@ -789,6 +803,9 @@ log "agent lock helper: ${LOCK_HELPER_PATH}"
 log "agent queue write helper: ${QUEUE_WRITE_HELPER_PATH}"
 log "agent merge helper: ${MERGE_HELPER_PATH}"
 log "harness version: ${HARNESS_VERSION}"
+if ! validate_explicit_base_ref; then
+  exit 1
+fi
 if [[ "${MAX_RUNS}" -eq 0 ]]; then
   log "run mode: unbounded"
 else

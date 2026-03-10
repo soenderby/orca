@@ -73,6 +73,20 @@ warn_if_main_refs_diverge() {
   fi
 }
 
+validate_explicit_base_ref() {
+  if [[ -z "${ORCA_BASE_REF:-}" ]]; then
+    return 0
+  fi
+
+  if git rev-parse --verify --quiet "${ORCA_BASE_REF}^{commit}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo "[setup] ORCA_BASE_REF does not resolve to a commit: ${ORCA_BASE_REF}" >&2
+  echo "[setup] set ORCA_BASE_REF to a valid ref (for example: main, origin/main, or a commit SHA)" >&2
+  return 1
+}
+
 branch_in_any_worktree() {
   local branch_name="$1"
 
@@ -124,6 +138,7 @@ create_worktree_if_missing() {
 }
 
 BASE_REF="$(detect_base_ref)"
+validate_explicit_base_ref
 echo "[setup] base ref for new worktrees: ${BASE_REF}"
 
 for i in $(seq 1 "${COUNT}"); do

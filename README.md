@@ -71,8 +71,8 @@ Prioritize changes based on observed problems from real runs. Capture proposed i
 Orca is a `tmux`-backed multi-agent loop with one persistent git worktree per agent:
 
 1. `setup-worktrees.sh` creates missing `worktrees/agent-N` on branch `swarm/agent-N` from the detected base ref (`ORCA_BASE_REF`, otherwise `main`, then `origin/main`, then current branch), warns with ahead/behind counts when `main` and `origin/main` diverge, treats `swarm/agent-N` as local transport state, and ignores any `origin/swarm/agent-N` refs.
-2. `start.sh` launches one tmux session per agent, injects runtime env, and validates the local `br` queue workspace.
-3. `agent-loop.sh` runs one agent pass per iteration, creates a unique per-run branch using the same base-ref precedence as setup, writes per-run logs/metrics, and parses the agent summary JSON.
+2. `start.sh` launches one tmux session per agent, injects runtime env (including `ORCA_BASE_REF` when set), validates the local `br` queue workspace, and fails fast when an explicit `ORCA_BASE_REF` is invalid.
+3. `agent-loop.sh` runs one agent pass per iteration, validates explicit `ORCA_BASE_REF` overrides on startup, creates a unique per-run branch using the same base-ref precedence as setup, writes per-run logs/metrics, and parses the agent summary JSON.
 4. `AGENT_PROMPT.md` defines the agent contract for issue lifecycle, merge, discovery, and summary output.
 5. `with-lock.sh` provides the shared lock primitive used by queue/merge helpers.
 6. `queue-write-main.sh` performs lock-guarded queue mutations on `ORCA_PRIMARY_REPO/main`.
@@ -318,4 +318,4 @@ Primary repo and helper paths are injected to agents as:
 - `ORCA_WITH_LOCK_PATH`: absolute path to lock helper passed to agents; defaults to `<repo-root>/with-lock.sh` in both `start.sh` and `agent-loop.sh`, and must be executable
 - `ORCA_QUEUE_WRITE_MAIN_PATH`: absolute path to queue mutation helper passed to agents (default `<repo-root>/queue-write-main.sh`)
 - `ORCA_MERGE_MAIN_PATH`: absolute path to merge helper passed to agents (default `<repo-root>/merge-main.sh`)
-- `ORCA_BASE_REF`: optional explicit base ref override for worktree setup and run-branch creation (default when unset: `main`, then `origin/main`, then current branch; warns when `main` and `origin/main` diverge)
+- `ORCA_BASE_REF`: optional explicit base ref override for worktree setup and run-branch creation; when set, it must resolve to a commit or startup fails fast (default when unset: `main`, then `origin/main`, then current branch; warns when `main` and `origin/main` diverge)

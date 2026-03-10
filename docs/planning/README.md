@@ -1,25 +1,51 @@
-# Orca Planning Documents
+# Orca
 
-These files describe strategic direction, open design questions, and planning artifacts.
-They are intentionally separated from runtime docs so exploratory planning does not get mixed with current behavior.
+Orca is a local execution harness for running autonomous coding agents in parallel. It manages transport — tmux sessions, git worktrees, locking, task coordination, logging — so that agents can focus on doing work. It is built for a single developer operating multiple agents against a shared codebase.
 
-## Core design docs
+Orca is not an agent framework. It does not abstract over LLM providers, manage prompt chains, or provide agent-building primitives. It manages the environment agents run in, not the agents themselves.
 
-- `orca-redesign.md` — redesign proposal and design decisions (reference-heavy, exploratory)
-- `orca-goals-and-considerations.md` — current strategic framing (goals, principles, layer model, capability framing)
-- `pi-migration-plan.md` — tactical runtime migration options (kept as a revisable plan, not an implementation schedule)
+The execution layer works. In past use, failures and rework traced primarily to task specification quality — unclear intent, missing constraints, absent design context — not to execution mechanics. Providing agents with specific tools for recurring tasks was another significant factor in effectiveness.
 
-## Planning process artifacts
+## Design Principles
 
-- `planning-stance.md` — explicit pre-implementation planning mode and rules
-- `decision-ledger.md` — active architecture bets, confidence, and revisit triggers
-- `capabilities-and-authority.md` — canonical capability definitions and authority envelopes
-- `invariants-vs-policy.md` — classification of correctness invariants vs adjustable policy
-- `hypotheses.md` — hypothesis backlog for design learning
-- `evidence-map.md` — planning-question-to-evidence mapping
-- `design-review-template.md` — template/checklist for pre-implementation design reviews
+### 1. The harness handles transport and tools; agents handle decisions
 
-## Status guidance
+The harness manages loops, worktrees, artifacts, locks, coordination, and provides tools for agents to use. It does not decide what agents should work on, how they should approach a problem, or what constitutes good output. Any harness change that encodes task policy or implementation preference is wrong.
 
-- Planning docs may remain internally inconsistent while exploration is ongoing.
-- Runtime behavior is defined by root operational docs and shell scripts.
+### 2. Correctness invariants are enforced mechanically, not instructionally
+
+If skipping something causes data loss, race conditions, or corrupted state, the harness must make it impossible to skip — not ask nicely in a prompt. If skipping something merely degrades quality, leave it to agent judgment.
+
+Current invariants:
+- Claim an issue before coding (prevents duplicate/conflicting work)
+- Hold the lock before merging to main (prevents race conditions)
+- Clean worktree before starting a run (prevents state contamination)
+- Write valid summary JSON after every run (downstream tooling depends on it)
+
+Everything else is policy and must remain adjustable.
+
+### 3. Keep mandatory context minimal; make optional context discoverable
+
+A large mandatory prompt crowds out task context and anchors agents on prescribed approaches. The agent coordination protocol (how to claim, merge, report) must be short and stable. Operational knowledge and guidance are optional — agents read them when relevant and ignore them when not.
+
+Any growth in mandatory context must be justified by a repeated correctness failure, not by a desire to improve quality.
+
+### 4. Do not encode reasoning in the harness
+
+The harness is a thin, deterministic shell. Ranking, scoring, selecting, classifying, inferring complexity, deciding what should happen next — these are reasoning tasks that belong to the model, not to shell scripts or heuristics. When the harness reaches a decision point, the answer is to give the decision to an agent, not to write a conditional.
+
+### 5. Every run must leave a queryable trace
+
+The system must produce structured, machine-readable artifacts for every run — logs, summaries, metrics, queue state changes. If a behavior can't be observed after the fact, it can't be diagnosed, compared, or improved. Reject any feature that doesn't leave a trace. Reject any trace that can't be queried.
+
+### 6. Prefer the cheapest realization that tests the idea
+
+A prompt change before a script. A script before a subsystem. A manual experiment before automation. The right time to build infrastructure is after a lightweight version has proven the idea works. Most ideas don't survive contact with reality; build for the ones that do.
+
+### 7. Task specification has been the highest-leverage improvement area
+
+In past use, agent failures were predominantly specification failures: missing design intent, ambiguous scope, unstated constraints. Tooling and practices that helped produce better task specs — clearer acceptance criteria, explicit design intent, plan-before-execute checkpoints — delivered more value than execution layer refinements. This may change as the system matures.
+
+### 8. The system improves through use, not through planning
+
+Design documents that are not motivated by observed problems in real runs are speculative. Run the system, observe what fails, fix what matters. Planning is valuable when it processes evidence; it is waste when it precedes evidence.

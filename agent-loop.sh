@@ -37,6 +37,8 @@ ORCA_TIMING_METRICS="${ORCA_TIMING_METRICS:-1}"
 ORCA_COMPACT_SUMMARY="${ORCA_COMPACT_SUMMARY:-1}"
 ORCA_LOCK_SCOPE="${ORCA_LOCK_SCOPE:-merge}"
 ORCA_LOCK_TIMEOUT_SECONDS="${ORCA_LOCK_TIMEOUT_SECONDS:-120}"
+ORCA_NO_WORK_DRAIN_MODE="${ORCA_NO_WORK_DRAIN_MODE:-drain}"
+ORCA_NO_WORK_RETRY_LIMIT="${ORCA_NO_WORK_RETRY_LIMIT:-1}"
 AGENT_LOG_ROOT="${ROOT}/agent-logs"
 SESSION_LOG_ROOT="${AGENT_LOG_ROOT}/sessions"
 
@@ -67,6 +69,16 @@ fi
 
 if ! [[ "${ORCA_LOCK_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]]; then
   echo "ORCA_LOCK_TIMEOUT_SECONDS must be a positive integer: ${ORCA_LOCK_TIMEOUT_SECONDS}" >&2
+  exit 1
+fi
+
+if [[ "${ORCA_NO_WORK_DRAIN_MODE}" != "drain" && "${ORCA_NO_WORK_DRAIN_MODE}" != "watch" ]]; then
+  echo "ORCA_NO_WORK_DRAIN_MODE must be 'drain' or 'watch': ${ORCA_NO_WORK_DRAIN_MODE}" >&2
+  exit 1
+fi
+
+if ! [[ "${ORCA_NO_WORK_RETRY_LIMIT}" =~ ^[0-9]+$ ]]; then
+  echo "ORCA_NO_WORK_RETRY_LIMIT must be a non-negative integer: ${ORCA_NO_WORK_RETRY_LIMIT}" >&2
   exit 1
 fi
 
@@ -126,6 +138,7 @@ touch "${DISCOVERY_LOG_FILE}"
 
 runs_completed=0
 cleanup_in_progress=0
+consecutive_no_work_runs=0
 
 LOGFILE=""
 SUMMARY_FILE=""
@@ -802,6 +815,7 @@ log "agent primary repo: ${PRIMARY_REPO}"
 log "agent lock helper: ${LOCK_HELPER_PATH}"
 log "agent queue write helper: ${QUEUE_WRITE_HELPER_PATH}"
 log "agent merge helper: ${MERGE_HELPER_PATH}"
+log "no_work drain mode: ${ORCA_NO_WORK_DRAIN_MODE} (retry limit: ${ORCA_NO_WORK_RETRY_LIMIT})"
 log "harness version: ${HARNESS_VERSION}"
 if ! validate_explicit_base_ref; then
   exit 1
@@ -885,6 +899,28 @@ while true; do
     log "completed run ${runs_completed}"
   else
     log "completed run ${runs_completed}/${MAX_RUNS}"
+  fi
+
+  if [[ "${RUN_RESULT}" == "no_work" ]]; then
+    consecutive_no_work_runs=$((consecutive_no_work_runs + 1))
+    if [[ "${ORCA_NO_WORK_DRAIN_MODE}" == "drain" ]]; then
+      if (( consecutive_no_work_runs > ORCA_NO_WORK_RETRY_LIMIT )); then
+        local_stop_requested=1
+        RUN_SUMMARY_LOOP_ACTION="stop"
+        RUN_SUMMARY_LOOP_ACTION_REASON="queue-drained-after-${consecutive_no_work_runs}-consecutive-no_work-runs"
+        RUN_REASON="${RUN_SUMMARY_LOOP_ACTION_REASON}"
+        log "queue drain stop: ${RUN_SUMMARY_LOOP_ACTION_REASON}"
+      else
+        log "no_work observed (${consecutive_no_work_runs} consecutive); retrying to avoid transient false stop"
+      fi
+    else
+      log "no_work observed (${consecutive_no_work_runs} consecutive); watch mode keeps loop running"
+    fi
+  else
+    if [[ "${consecutive_no_work_runs}" -gt 0 ]]; then
+      log "resetting consecutive no_work counter after result=${RUN_RESULT}"
+    fi
+    consecutive_no_work_runs=0
   fi
 
   if [[ "${RUN_SUMMARY_PARSE_STATUS}" == "parsed" && "${RUN_SUMMARY_LOOP_ACTION}" == "stop" ]]; then

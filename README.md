@@ -48,7 +48,7 @@ Operating stance: autonomy with explicit protocol guidance (Option C; see `docs/
 
 ## Commands
 
-- `start [count] [--runs N|--continuous] [--reasoning-level LEVEL]`
+- `start [count] [--runs N|--continuous] [--drain|--watch] [--no-work-retries N] [--reasoning-level LEVEL]`
 - `stop`
 - `status`
 - `gc-run-branches [--apply] [--base REF]`
@@ -74,7 +74,7 @@ Orca is a `tmux`-backed multi-agent loop with one persistent git worktree per ag
 
 1. `setup-worktrees.sh` creates missing `worktrees/agent-N` on branch `swarm/agent-N` from the detected base ref (`ORCA_BASE_REF`, otherwise `main`, then `origin/main`, then current branch), warns with ahead/behind counts when `main` and `origin/main` diverge, treats `swarm/agent-N` as local transport state, and ignores any `origin/swarm/agent-N` refs.
 2. `start.sh` launches one tmux session per agent, injects runtime env (including `ORCA_BASE_REF` when set), validates the local `br` queue workspace, and fails fast when an explicit `ORCA_BASE_REF` is invalid.
-3. `agent-loop.sh` runs one agent pass per iteration, validates explicit `ORCA_BASE_REF` overrides on startup, creates a unique per-run branch using the same base-ref precedence as setup, writes per-run logs/metrics, and parses the agent summary JSON.
+3. `agent-loop.sh` runs one agent pass per iteration, validates explicit `ORCA_BASE_REF` overrides on startup, creates a unique per-run branch using the same base-ref precedence as setup, writes per-run logs/metrics, parses the agent summary JSON, and applies deterministic no-work drain policy.
 4. `AGENT_PROMPT.md` defines the agent contract for issue lifecycle, merge, discovery, and summary output.
 5. `with-lock.sh` provides the shared lock primitive used by queue/merge helpers.
 6. `queue-write-main.sh` performs lock-guarded queue mutations on `ORCA_PRIMARY_REPO/main`.
@@ -172,7 +172,8 @@ Each iteration:
 4. parses summary JSON and validates required schema fields when present
 5. restores any leftover local `.beads/` working-tree changes to keep run branches clean
 6. appends metrics row to `agent-logs/metrics.jsonl`
-7. continues until `MAX_RUNS` or agent requests stop via `loop_action=stop`
+7. in default `drain` mode, stops on sustained `no_work` (after `ORCA_NO_WORK_RETRY_LIMIT + 1` consecutive `no_work` results); transient no-work windows can retry up to the configured limit
+8. `watch` mode disables no-work auto-stop and keeps polling until `MAX_RUNS` or `loop_action=stop`
 
 ## Validation and Safety Checks
 
@@ -188,12 +189,14 @@ Startup checks:
 6. `ORCA_TIMING_METRICS` and `ORCA_COMPACT_SUMMARY` are `0|1`
 7. `ORCA_LOCK_SCOPE` matches `[A-Za-z0-9._-]+`
 8. `ORCA_LOCK_TIMEOUT_SECONDS` positive integer
-9. `.beads/` workspace exists and `br doctor` succeeds
-10. each non-running agent worktree is clean (`git status --porcelain` empty)
-11. `AGENT_REASONING_LEVEL` (if set) matches `[A-Za-z0-9._-]+`
-12. `PROMPT_TEMPLATE` exists
-13. `ORCA_PRIMARY_REPO` points to a valid git worktree
-14. `ORCA_WITH_LOCK_PATH`, `ORCA_QUEUE_WRITE_MAIN_PATH`, and `ORCA_MERGE_MAIN_PATH` are executable
+9. `ORCA_NO_WORK_DRAIN_MODE` is `drain|watch`
+10. `ORCA_NO_WORK_RETRY_LIMIT` non-negative integer
+11. `.beads/` workspace exists and `br doctor` succeeds
+12. each non-running agent worktree is clean (`git status --porcelain` empty)
+13. `AGENT_REASONING_LEVEL` (if set) matches `[A-Za-z0-9._-]+`
+14. `PROMPT_TEMPLATE` exists
+15. `ORCA_PRIMARY_REPO` points to a valid git worktree
+16. `ORCA_WITH_LOCK_PATH`, `ORCA_QUEUE_WRITE_MAIN_PATH`, and `ORCA_MERGE_MAIN_PATH` are executable
 
 Behavior:
 
@@ -215,12 +218,14 @@ Input/env validation:
 4. `ORCA_TIMING_METRICS` and `ORCA_COMPACT_SUMMARY` are `0|1`
 5. `ORCA_LOCK_SCOPE` matches `[A-Za-z0-9._-]+`
 6. `ORCA_LOCK_TIMEOUT_SECONDS` positive integer
-7. `AGENT_REASONING_LEVEL` format validation when set
-8. `PROMPT_TEMPLATE` exists
-9. `ORCA_PRIMARY_REPO` points to a valid git worktree
-10. `ORCA_WITH_LOCK_PATH` points to an executable helper
-11. `ORCA_QUEUE_WRITE_MAIN_PATH` points to an executable helper
-12. `ORCA_MERGE_MAIN_PATH` points to an executable helper
+7. `ORCA_NO_WORK_DRAIN_MODE` is `drain|watch`
+8. `ORCA_NO_WORK_RETRY_LIMIT` non-negative integer
+9. `AGENT_REASONING_LEVEL` format validation when set
+10. `PROMPT_TEMPLATE` exists
+11. `ORCA_PRIMARY_REPO` points to a valid git worktree
+12. `ORCA_WITH_LOCK_PATH` points to an executable helper
+13. `ORCA_QUEUE_WRITE_MAIN_PATH` points to an executable helper
+14. `ORCA_MERGE_MAIN_PATH` points to an executable helper
 
 Signal handling:
 
@@ -307,7 +312,7 @@ Primary repo and helper paths are injected to agents as:
 
 ## Runtime Knobs
 
-- `MAX_RUNS`: issue runs per loop (`0` means unbounded unless agent requests stop)
+- `MAX_RUNS`: issue runs per loop (`0` means unbounded unless stopped by drain policy or `loop_action=stop`)
 - `AGENT_MODEL`: default model for default command
 - `AGENT_REASONING_LEVEL`: optional reasoning effort for default command
 - `RUN_SLEEP_SECONDS`: sleep between iterations (default `2`)
@@ -318,6 +323,8 @@ Primary repo and helper paths are injected to agents as:
 - `AGENT_COMMAND`: full command for each run
 - `ORCA_LOCK_SCOPE`: shared writer lock scope for all `main` write operations (claim publication and merge/push) (default `merge`)
 - `ORCA_LOCK_TIMEOUT_SECONDS`: lock timeout seconds for shared writer lock operations (default `120`)
+- `ORCA_NO_WORK_DRAIN_MODE`: `drain` (default) or `watch`; `drain` stops loops on sustained `no_work`, `watch` keeps polling
+- `ORCA_NO_WORK_RETRY_LIMIT`: non-negative retry budget for transient consecutive `no_work` in `drain` mode (default `1`)
 - `ORCA_PRIMARY_REPO`: primary repository path used for lock-guarded claim publication and merge/push operations; defaults to repo root in both `start.sh` and `agent-loop.sh`, and must be a valid git worktree
 - `ORCA_WITH_LOCK_PATH`: absolute path to lock helper passed to agents; defaults to `<repo-root>/with-lock.sh` in both `start.sh` and `agent-loop.sh`, and must be executable
 - `ORCA_QUEUE_WRITE_MAIN_PATH`: absolute path to queue mutation helper passed to agents (default `<repo-root>/queue-write-main.sh`)

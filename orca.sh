@@ -10,7 +10,7 @@ Usage:
   ${USAGE_PREFIX} <command> [args]
 
 Commands:
-  start [count] [--runs N|--continuous] [--reasoning-level LEVEL]
+  start [count] [--runs N|--continuous] [--drain|--watch] [--no-work-retries N] [--reasoning-level LEVEL]
   stop
   status
   gc-run-branches [--apply] [--base REF]

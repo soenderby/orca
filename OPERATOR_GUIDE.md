@@ -85,11 +85,19 @@ Cross-machine note: lock files are local to each clone. Global contention resolv
 ```
 
 `orca start` validates the local `br` workspace (`.beads/`) and fails fast when the queue workspace is missing/unhealthy or a non-running agent worktree is dirty.
+Default no-work behavior is drain mode: after a small retry budget for transient races, loops stop on sustained `no_work`.
+Use `--watch` to keep polling on `no_work` instead.
 
 Bounded mode:
 
 ```bash
 ./orca.sh start 2 --runs 5
+```
+
+Watch/poll mode override:
+
+```bash
+./orca.sh start 2 --continuous --watch
 ```
 
 ### 3) Monitor
@@ -117,7 +125,8 @@ Orca loop (`agent-loop.sh`) does:
 1. validate explicit `ORCA_BASE_REF` overrides, then prepare a per-run branch (`ORCA_BASE_REF`, otherwise `main`, then `origin/main`, then current branch; warns when `main` and `origin/main` diverge) and run one agent pass per iteration
 2. provide prompt + run artifact paths
 3. parse summary JSON and append metrics
-4. continue until run limit or agent-requested stop
+4. in default `drain` mode, stop on sustained `no_work` after `ORCA_NO_WORK_RETRY_LIMIT + 1` consecutive `no_work` results
+5. continue until run limit, no-work drain stop, or agent-requested stop
 
 Agent does:
 
@@ -128,7 +137,7 @@ Agent does:
 5. close issues via `ORCA_QUEUE_WRITE_MAIN_PATH`
 6. record discoveries and summary JSON
 
-Orca injects `ORCA_WITH_LOCK_PATH`, `ORCA_PRIMARY_REPO`, `ORCA_LOCK_SCOPE`, `ORCA_LOCK_TIMEOUT_SECONDS`, `ORCA_QUEUE_WRITE_MAIN_PATH`, `ORCA_MERGE_MAIN_PATH`, and `ORCA_BASE_REF` into each run so helper scripts can use stable absolute paths.
+Orca injects `ORCA_WITH_LOCK_PATH`, `ORCA_PRIMARY_REPO`, `ORCA_LOCK_SCOPE`, `ORCA_LOCK_TIMEOUT_SECONDS`, `ORCA_QUEUE_WRITE_MAIN_PATH`, `ORCA_MERGE_MAIN_PATH`, `ORCA_BASE_REF`, `ORCA_NO_WORK_DRAIN_MODE`, and `ORCA_NO_WORK_RETRY_LIMIT` into each run so helper scripts can use stable absolute paths.
 `ORCA_PRIMARY_REPO` defaults to repo root and must be a valid git worktree; `ORCA_WITH_LOCK_PATH` defaults to `<repo-root>/with-lock.sh` and must be executable.
 
 ## Operating Playbook

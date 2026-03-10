@@ -6,30 +6,16 @@ Orca uses transport-focused loop orchestration while agents own task policy and 
 
 ## Documentation
 
-Operational documentation for current behavior stays in this directory:
+Current documentation:
 
 1. `README.md` (this file): technical reference and command/runtime details
-2. `AGENT_PROMPT.md`: single consolidated instruction contract for loop agents
-3. `OPERATOR_GUIDE.md`: human operator guide, including intent and design principles
-
-Planning/redesign material is intentionally separated under `docs/planning/`.
-Research/reference material is under `docs/research/`.
-
-## Prompt Migration Note
-
-`AGENT_PROMPT.md` remains the active worker prompt in this phase.
-
-Roadmap migration target:
-
-1. mandatory coordination protocol in `AGENTS.md`
-2. optional operational guidance in `knowledge/`
-
-M0 adds strict run-summary schema enforcement and metrics version attribution; it does not yet switch prompt files.
+2. `docs/design.md`: purpose and design principles
+3. `AGENT_PROMPT.md`: active worker prompt contract
+4. `OPERATOR_GUIDE.md`: operator playbook
 
 ## Entrypoints
 
-- Preferred: `./bb orca <command> [args]`
-- Direct: `./orca.sh <command> [args]`
+- `./orca.sh <command> [args]`
 
 ## Queue Initialization (one-time)
 
@@ -71,7 +57,7 @@ Helper scripts (direct invocation):
 - `./with-lock.sh [--scope NAME] [--timeout SECONDS] -- <command> [args...]`
 - `./queue-write-main.sh [options] -- <queue-command> [args...]`
 - `./merge-main.sh [--source BRANCH] [options]`
-- `./check-runtime-boundaries.sh` (assert runtime scripts do not depend on planning/research docs, stale `scripts/orca/` paths, or legacy `bd`/Dolt references)
+- `./check-runtime-boundaries.sh` (assert runtime scripts do not depend on stale `scripts/orca/` paths or legacy `bd`/Dolt references)
 
 ## TODO
 

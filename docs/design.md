@@ -4,6 +4,8 @@ Orca is a local execution harness for running autonomous coding agents in parall
 
 Orca is not an agent framework. It does not abstract over LLM providers, manage prompt chains, or provide agent-building primitives. It manages the environment agents run in, not the agents themselves.
 
+Its goal is to help a developer learn and operationalize how to use autonomous agents effectively to build software.
+
 The execution layer works. In past use, failures and rework traced primarily to task specification quality — unclear intent, missing constraints, absent design context — not to execution mechanics. Providing agents with specific tools for recurring tasks was the other significant factor in effectiveness. These observations should inform where effort is spent, but they are not permanent truths — revisit as the system matures.
 
 ## Design Principles

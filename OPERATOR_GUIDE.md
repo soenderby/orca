@@ -150,6 +150,15 @@ br list --status in_progress --limit 50
 br list --status closed --sort updated --reverse --limit 20
 ```
 
+Run-branch cleanup (dry-run by default):
+
+```bash
+./orca.sh gc-run-branches
+./orca.sh gc-run-branches --apply
+```
+
+`gc-run-branches` only prunes local `swarm/*-run-*` branches that are already merged into `main` and not active in any worktree or active agent tmux session.
+
 Attach to a session:
 
 ```bash

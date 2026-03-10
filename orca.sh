@@ -13,6 +13,7 @@ Commands:
   start [count] [--runs N|--continuous] [--reasoning-level LEVEL]
   stop
   status
+  gc-run-branches [--apply] [--base REF]
   setup-worktrees [count]
   with-lock [--scope NAME] [--timeout SECONDS] -- <command> [args...]
   queue-write-main [options] -- <queue-command> [args...]
@@ -34,6 +35,9 @@ case "${subcommand}" in
     ;;
   status)
     exec "${SCRIPT_DIR}/status.sh" "$@"
+    ;;
+  gc-run-branches|gc)
+    exec "${SCRIPT_DIR}/gc-run-branches.sh" "$@"
     ;;
   setup-worktrees|setup)
     exec "${SCRIPT_DIR}/setup-worktrees.sh" "$@"

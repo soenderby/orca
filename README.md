@@ -42,6 +42,7 @@ Orca with `br` uses git-based async queue collaboration (`.beads/issues.jsonl`),
 6. Claim publication and merge/push both use the shared writer lock (`ORCA_LOCK_SCOPE`, default `merge`).
 7. Run branches are local transport state; do not push them to origin in normal local Orca operation.
 8. Cross-machine note: lock files are local. Concurrency across machines is resolved by git publication order on `main` (losing claim attempts must re-import and pick another issue).
+9. Local source-of-truth policy: local `main` is the default base for local setup/run operations; `origin/main` is used for synchronization and fallback only. When local `main` and `origin/main` diverge, Orca warns with ahead/behind counts and still defaults to local `main`.
 
 Operating stance: autonomy with explicit protocol guidance (Option C; see `docs/decision-log.md`, DL-001). Orca provides safety guardrails and observability, while agents retain broad execution autonomy.
 
@@ -298,6 +299,8 @@ Primary repo and helper paths are injected to agents as:
 - prompt placeholders: `__PRIMARY_REPO__`, `__ORCA_PRIMARY_REPO__`, `__WITH_LOCK_PATH__`, `__ORCA_WITH_LOCK_PATH__`, `__QUEUE_WRITE_MAIN_PATH__`, `__ORCA_QUEUE_WRITE_MAIN_PATH__`, `__MERGE_MAIN_PATH__`, `__ORCA_MERGE_MAIN_PATH__`
 - env vars: `ORCA_PRIMARY_REPO`, `ORCA_WITH_LOCK_PATH`, `ORCA_QUEUE_WRITE_MAIN_PATH`, `ORCA_MERGE_MAIN_PATH`
 
+`start.sh` sets these values at launch time; if `agent-loop.sh` is run directly, it applies the same defaults (`<repo-root>`, `<repo-root>/with-lock.sh`, `<repo-root>/queue-write-main.sh`, `<repo-root>/merge-main.sh`) and the same validation rules.
+
 ## Runtime Knobs
 
 - `MAX_RUNS`: issue runs per loop (`0` means unbounded unless agent requests stop)
@@ -311,8 +314,8 @@ Primary repo and helper paths are injected to agents as:
 - `AGENT_COMMAND`: full command for each run
 - `ORCA_LOCK_SCOPE`: shared writer lock scope for all `main` write operations (claim publication and merge/push) (default `merge`)
 - `ORCA_LOCK_TIMEOUT_SECONDS`: lock timeout seconds for shared writer lock operations (default `120`)
-- `ORCA_PRIMARY_REPO`: primary repository path used for lock-guarded claim publication and merge/push operations (default repo root)
-- `ORCA_WITH_LOCK_PATH`: absolute path to lock helper passed to agents (default `<repo-root>/with-lock.sh`)
+- `ORCA_PRIMARY_REPO`: primary repository path used for lock-guarded claim publication and merge/push operations; defaults to repo root in both `start.sh` and `agent-loop.sh`, and must be a valid git worktree
+- `ORCA_WITH_LOCK_PATH`: absolute path to lock helper passed to agents; defaults to `<repo-root>/with-lock.sh` in both `start.sh` and `agent-loop.sh`, and must be executable
 - `ORCA_QUEUE_WRITE_MAIN_PATH`: absolute path to queue mutation helper passed to agents (default `<repo-root>/queue-write-main.sh`)
 - `ORCA_MERGE_MAIN_PATH`: absolute path to merge helper passed to agents (default `<repo-root>/merge-main.sh`)
 - `ORCA_BASE_REF`: optional explicit base ref override for worktree setup and run-branch creation (default when unset: `main`, then `origin/main`, then current branch; warns when `main` and `origin/main` diverge)

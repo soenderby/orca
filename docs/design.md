@@ -28,6 +28,7 @@ Current protocol expectations (explicit, not hard-blocked in all paths):
 - Publish claims via `queue-write-main.sh` on `ORCA_PRIMARY_REPO/main` before coding.
 - Perform queue mutations via `queue-write-main.sh`.
 - Perform integration via `merge-main.sh`.
+- Treat local `main` as the default local source of truth for setup/run base selection; use `origin/main` for synchronization and fallback when needed.
 
 Protocol adherence is expected, measured through run artifacts, and revisited when violations become costly or frequent.
 

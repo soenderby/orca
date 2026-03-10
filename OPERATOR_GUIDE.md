@@ -62,6 +62,7 @@ Also ensure:
    - commit/push `.beads/` updates on `main` as part of helper workflow
 
 Queue mutation and merge/push share one writer lock scope (`ORCA_LOCK_SCOPE`, default `merge`) so all local `main` writes serialize.
+Local source-of-truth policy: local `main` is the default base for local setup and per-run branch creation; `origin/main` remains a sync peer and fallback. If they diverge, Orca warns with ahead/behind counts and still defaults to local `main`.
 
 Run branches (`swarm/agent-*`, `swarm/*-run-*`) are local transport state in this model; do not push them to origin during normal local operation.
 
@@ -128,6 +129,7 @@ Agent does:
 6. record discoveries and summary JSON
 
 Orca injects `ORCA_WITH_LOCK_PATH`, `ORCA_PRIMARY_REPO`, `ORCA_LOCK_SCOPE`, `ORCA_LOCK_TIMEOUT_SECONDS`, `ORCA_QUEUE_WRITE_MAIN_PATH`, and `ORCA_MERGE_MAIN_PATH` into each run so helper scripts can use stable absolute paths.
+`ORCA_PRIMARY_REPO` defaults to repo root and must be a valid git worktree; `ORCA_WITH_LOCK_PATH` defaults to `<repo-root>/with-lock.sh` and must be executable.
 
 ## Operating Playbook
 

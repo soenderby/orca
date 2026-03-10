@@ -4,12 +4,16 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  start.sh [count] [--runs N | --continuous] [--reasoning-level LEVEL]
+  start.sh [count] [--runs N | --continuous] [--drain | --watch] [--no-work-retries N] [--reasoning-level LEVEL]
 
 Options:
   count         Number of worker sessions/worktrees to launch (default: 2)
   --runs N      Stop each agent loop after N completed issue runs
   --continuous  Keep each loop unbounded (agent can request stop) (default)
+  --drain       Stop loop on sustained queue exhaustion (`no_work`) (default)
+  --watch       Keep loop running on `no_work` (poll/watch mode)
+  --no-work-retries N
+                Consecutive `no_work` retries before drain-stop in `--drain` mode (default: 1)
   --reasoning-level LEVEL
                 Set `model_reasoning_effort` for default codex agent command
 USAGE
@@ -31,6 +35,8 @@ ORCA_TIMING_METRICS="${ORCA_TIMING_METRICS:-1}"
 ORCA_COMPACT_SUMMARY="${ORCA_COMPACT_SUMMARY:-1}"
 ORCA_LOCK_SCOPE="${ORCA_LOCK_SCOPE:-merge}"
 ORCA_LOCK_TIMEOUT_SECONDS="${ORCA_LOCK_TIMEOUT_SECONDS:-120}"
+ORCA_NO_WORK_DRAIN_MODE="${ORCA_NO_WORK_DRAIN_MODE:-drain}"
+ORCA_NO_WORK_RETRY_LIMIT="${ORCA_NO_WORK_RETRY_LIMIT:-1}"
 ORCA_PRIMARY_REPO="${ORCA_PRIMARY_REPO:-}"
 ORCA_WITH_LOCK_PATH="${ORCA_WITH_LOCK_PATH:-}"
 ORCA_QUEUE_WRITE_MAIN_PATH="${ORCA_QUEUE_WRITE_MAIN_PATH:-}"
@@ -186,6 +192,22 @@ while [[ $# -gt 0 ]]; do
       MAX_RUNS=0
       shift
       ;;
+    --drain)
+      ORCA_NO_WORK_DRAIN_MODE="drain"
+      shift
+      ;;
+    --watch)
+      ORCA_NO_WORK_DRAIN_MODE="watch"
+      shift
+      ;;
+    --no-work-retries)
+      if [[ $# -lt 2 ]]; then
+        echo "[start] --no-work-retries requires a non-negative integer argument" >&2
+        exit 1
+      fi
+      ORCA_NO_WORK_RETRY_LIMIT="$2"
+      shift 2
+      ;;
     --reasoning-level)
       if [[ $# -lt 2 ]]; then
         echo "[start] --reasoning-level requires an argument" >&2
@@ -257,6 +279,16 @@ if ! [[ "${ORCA_LOCK_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]]; then
   exit 1
 fi
 
+if [[ "${ORCA_NO_WORK_DRAIN_MODE}" != "drain" && "${ORCA_NO_WORK_DRAIN_MODE}" != "watch" ]]; then
+  echo "[start] ORCA_NO_WORK_DRAIN_MODE must be 'drain' or 'watch': ${ORCA_NO_WORK_DRAIN_MODE}" >&2
+  exit 1
+fi
+
+if ! [[ "${ORCA_NO_WORK_RETRY_LIMIT}" =~ ^[0-9]+$ ]]; then
+  echo "[start] ORCA_NO_WORK_RETRY_LIMIT must be a non-negative integer: ${ORCA_NO_WORK_RETRY_LIMIT}" >&2
+  exit 1
+fi
+
 if [[ -n "${AGENT_REASONING_LEVEL}" && ! "${AGENT_REASONING_LEVEL}" =~ ^[A-Za-z0-9._-]+$ ]]; then
   echo "[start] reasoning level must contain only letters, digits, dot, underscore, or dash: ${AGENT_REASONING_LEVEL}" >&2
   exit 1
@@ -302,9 +334,9 @@ fi
 ensure_br_workspace
 
 if [[ "${MAX_RUNS}" -eq 0 ]]; then
-  mode_message="continuous (agent-controlled stop)"
+  mode_message="continuous (agent stop + no_work mode=${ORCA_NO_WORK_DRAIN_MODE}, retries=${ORCA_NO_WORK_RETRY_LIMIT})"
 else
-  mode_message="${MAX_RUNS} runs per agent"
+  mode_message="${MAX_RUNS} runs per agent (no_work mode=${ORCA_NO_WORK_DRAIN_MODE}, retries=${ORCA_NO_WORK_RETRY_LIMIT})"
 fi
 
 echo "[start] run mode: ${mode_message}"
@@ -323,7 +355,7 @@ for i in $(seq 1 "${COUNT}"); do
   fi
 
   echo "[start] launching ${session} in ${worktree}"
-  tmux_cmd="$(printf "cd %q && AGENT_NAME=%q AGENT_SESSION_ID=%q WORKTREE=%q AGENT_MODEL=%q AGENT_REASONING_LEVEL=%q AGENT_COMMAND=%q PROMPT_TEMPLATE=%q MAX_RUNS=%q RUN_SLEEP_SECONDS=%q ORCA_TIMING_METRICS=%q ORCA_COMPACT_SUMMARY=%q ORCA_PRIMARY_REPO=%q ORCA_WITH_LOCK_PATH=%q ORCA_LOCK_SCOPE=%q ORCA_LOCK_TIMEOUT_SECONDS=%q ORCA_QUEUE_WRITE_MAIN_PATH=%q ORCA_MERGE_MAIN_PATH=%q ORCA_BASE_REF=%q %q" \
+  tmux_cmd="$(printf "cd %q && AGENT_NAME=%q AGENT_SESSION_ID=%q WORKTREE=%q AGENT_MODEL=%q AGENT_REASONING_LEVEL=%q AGENT_COMMAND=%q PROMPT_TEMPLATE=%q MAX_RUNS=%q RUN_SLEEP_SECONDS=%q ORCA_TIMING_METRICS=%q ORCA_COMPACT_SUMMARY=%q ORCA_PRIMARY_REPO=%q ORCA_WITH_LOCK_PATH=%q ORCA_LOCK_SCOPE=%q ORCA_LOCK_TIMEOUT_SECONDS=%q ORCA_NO_WORK_DRAIN_MODE=%q ORCA_NO_WORK_RETRY_LIMIT=%q ORCA_QUEUE_WRITE_MAIN_PATH=%q ORCA_MERGE_MAIN_PATH=%q ORCA_BASE_REF=%q %q" \
     "${ROOT}" \
     "agent-${i}" \
     "${session_id}" \
@@ -340,6 +372,8 @@ for i in $(seq 1 "${COUNT}"); do
     "${ORCA_WITH_LOCK_PATH}" \
     "${ORCA_LOCK_SCOPE}" \
     "${ORCA_LOCK_TIMEOUT_SECONDS}" \
+    "${ORCA_NO_WORK_DRAIN_MODE}" \
+    "${ORCA_NO_WORK_RETRY_LIMIT}" \
     "${ORCA_QUEUE_WRITE_MAIN_PATH}" \
     "${ORCA_MERGE_MAIN_PATH}" \
     "${ORCA_BASE_REF}" \

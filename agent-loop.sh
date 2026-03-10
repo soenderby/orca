@@ -217,17 +217,56 @@ start_run_artifacts() {
 }
 
 select_run_base_ref() {
-  if git show-ref --verify --quiet refs/remotes/origin/main; then
-    printf '%s\n' "origin/main"
+  local current_branch
+
+  if [[ -n "${ORCA_BASE_REF:-}" ]]; then
+    printf '%s\n' "${ORCA_BASE_REF}"
     return 0
   fi
+
+  warn_if_main_refs_diverge
 
   if git show-ref --verify --quiet refs/heads/main; then
     printf '%s\n' "main"
     return 0
   fi
 
+  if git show-ref --verify --quiet refs/remotes/origin/main; then
+    printf '%s\n' "origin/main"
+    return 0
+  fi
+
+  current_branch="$(git branch --show-current 2>/dev/null || true)"
+  if [[ -n "${current_branch}" ]]; then
+    printf '%s\n' "${current_branch}"
+    return 0
+  fi
+
   return 1
+}
+
+warn_if_main_refs_diverge() {
+  local counts
+  local ahead
+  local behind
+
+  if ! git show-ref --verify --quiet refs/heads/main; then
+    return 0
+  fi
+
+  if ! git show-ref --verify --quiet refs/remotes/origin/main; then
+    return 0
+  fi
+
+  counts="$(git rev-list --left-right --count main...origin/main 2>/dev/null || true)"
+  if [[ -z "${counts}" ]]; then
+    return 0
+  fi
+
+  read -r ahead behind <<< "${counts}"
+  if [[ "${ahead}" != "0" || "${behind}" != "0" ]]; then
+    log "warning: local main and origin/main differ (local ahead ${ahead}, behind ${behind}); defaulting to main"
+  fi
 }
 
 prepare_run_branch() {
@@ -243,7 +282,7 @@ prepare_run_branch() {
   fi
 
   if ! base_ref="$(select_run_base_ref)"; then
-    log "fatal: unable to determine base ref (expected origin/main or main)"
+    log "fatal: unable to determine base ref (checked ORCA_BASE_REF, main, origin/main, current branch)"
     return 1
   fi
 

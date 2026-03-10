@@ -75,6 +75,8 @@ Cross-machine note: lock files are local to each clone. Global contention resolv
 ./orca.sh setup-worktrees 2
 ```
 
+`setup-worktrees` picks base refs in this order: `ORCA_BASE_REF`, local `main`, `origin/main`, then current branch fallback. When local `main` and `origin/main` differ, it emits a warning with ahead/behind counts and still defaults to local `main`.
+
 ### 2) Start Loop Sessions
 
 ```bash
@@ -111,7 +113,7 @@ tail -n 10 agent-logs/metrics.jsonl
 
 Orca loop (`agent-loop.sh`) does:
 
-1. run one agent pass per iteration
+1. prepare a per-run branch (`ORCA_BASE_REF`, otherwise `main`, then `origin/main`, then current branch; warns when `main` and `origin/main` diverge) and run one agent pass per iteration
 2. provide prompt + run artifact paths
 3. parse summary JSON and append metrics
 4. continue until run limit or agent-requested stop

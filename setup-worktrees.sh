@@ -20,7 +20,6 @@ else
 fi
 
 detect_base_ref() {
-  local origin_head_ref
   local current_branch
 
   if [[ -n "${ORCA_BASE_REF:-}" ]]; then
@@ -28,21 +27,15 @@ detect_base_ref() {
     return 0
   fi
 
-  if [[ "${origin_available}" -eq 1 ]]; then
-    origin_head_ref="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)"
-    if [[ -n "${origin_head_ref}" ]] && git rev-parse --verify --quiet "${origin_head_ref}^{commit}" >/dev/null; then
-      printf '%s\n' "${origin_head_ref}"
-      return 0
-    fi
-
-    if git rev-parse --verify --quiet "origin/main^{commit}" >/dev/null; then
-      printf '%s\n' "origin/main"
-      return 0
-    fi
-  fi
+  warn_if_main_refs_diverge
 
   if git rev-parse --verify --quiet "main^{commit}" >/dev/null; then
     printf '%s\n' "main"
+    return 0
+  fi
+
+  if git rev-parse --verify --quiet "origin/main^{commit}" >/dev/null; then
+    printf '%s\n' "origin/main"
     return 0
   fi
 
@@ -54,6 +47,30 @@ detect_base_ref() {
 
   echo "[setup] unable to determine a base ref for new worktrees" >&2
   exit 1
+}
+
+warn_if_main_refs_diverge() {
+  local counts
+  local ahead
+  local behind
+
+  if ! git rev-parse --verify --quiet "main^{commit}" >/dev/null; then
+    return 0
+  fi
+
+  if ! git rev-parse --verify --quiet "origin/main^{commit}" >/dev/null; then
+    return 0
+  fi
+
+  counts="$(git rev-list --left-right --count main...origin/main 2>/dev/null || true)"
+  if [[ -z "${counts}" ]]; then
+    return 0
+  fi
+
+  read -r ahead behind <<< "${counts}"
+  if [[ "${ahead}" != "0" || "${behind}" != "0" ]]; then
+    echo "[setup] warning: local main and origin/main differ (local ahead ${ahead}, behind ${behind}); defaulting to local main" >&2
+  fi
 }
 
 branch_in_any_worktree() {

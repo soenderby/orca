@@ -76,7 +76,7 @@ Cross-machine note: lock files are local to each clone. Global contention resolv
 ./orca.sh setup-worktrees 2
 ```
 
-`setup-worktrees` picks base refs in this order: `ORCA_BASE_REF`, local `main`, `origin/main`, then current branch fallback. When local `main` and `origin/main` differ, it emits a warning with ahead/behind counts and still defaults to local `main`.
+`setup-worktrees` picks base refs in this order: `ORCA_BASE_REF`, local `main`, `origin/main`, then current branch fallback. When `ORCA_BASE_REF` is set, setup fails fast if it does not resolve to a commit. When local `main` and `origin/main` differ, setup emits a warning with ahead/behind counts and still defaults to local `main`.
 
 ### 2) Start Loop Sessions
 
@@ -114,7 +114,7 @@ tail -n 10 agent-logs/metrics.jsonl
 
 Orca loop (`agent-loop.sh`) does:
 
-1. prepare a per-run branch (`ORCA_BASE_REF`, otherwise `main`, then `origin/main`, then current branch; warns when `main` and `origin/main` diverge) and run one agent pass per iteration
+1. validate explicit `ORCA_BASE_REF` overrides, then prepare a per-run branch (`ORCA_BASE_REF`, otherwise `main`, then `origin/main`, then current branch; warns when `main` and `origin/main` diverge) and run one agent pass per iteration
 2. provide prompt + run artifact paths
 3. parse summary JSON and append metrics
 4. continue until run limit or agent-requested stop
@@ -128,7 +128,7 @@ Agent does:
 5. close issues via `ORCA_QUEUE_WRITE_MAIN_PATH`
 6. record discoveries and summary JSON
 
-Orca injects `ORCA_WITH_LOCK_PATH`, `ORCA_PRIMARY_REPO`, `ORCA_LOCK_SCOPE`, `ORCA_LOCK_TIMEOUT_SECONDS`, `ORCA_QUEUE_WRITE_MAIN_PATH`, and `ORCA_MERGE_MAIN_PATH` into each run so helper scripts can use stable absolute paths.
+Orca injects `ORCA_WITH_LOCK_PATH`, `ORCA_PRIMARY_REPO`, `ORCA_LOCK_SCOPE`, `ORCA_LOCK_TIMEOUT_SECONDS`, `ORCA_QUEUE_WRITE_MAIN_PATH`, `ORCA_MERGE_MAIN_PATH`, and `ORCA_BASE_REF` into each run so helper scripts can use stable absolute paths.
 `ORCA_PRIMARY_REPO` defaults to repo root and must be a valid git worktree; `ORCA_WITH_LOCK_PATH` defaults to `<repo-root>/with-lock.sh` and must be executable.
 
 ## Operating Playbook

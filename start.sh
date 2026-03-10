@@ -35,6 +35,7 @@ ORCA_PRIMARY_REPO="${ORCA_PRIMARY_REPO:-}"
 ORCA_WITH_LOCK_PATH="${ORCA_WITH_LOCK_PATH:-}"
 ORCA_QUEUE_WRITE_MAIN_PATH="${ORCA_QUEUE_WRITE_MAIN_PATH:-}"
 ORCA_MERGE_MAIN_PATH="${ORCA_MERGE_MAIN_PATH:-}"
+ORCA_BASE_REF="${ORCA_BASE_REF:-}"
 
 session_date_path() {
   local session_id="$1"
@@ -96,6 +97,22 @@ check_prerequisites() {
     echo "[start] missing prerequisites: ${missing[*]}" >&2
     exit 1
   fi
+}
+
+validate_explicit_base_ref() {
+  local repo_path="$1"
+
+  if [[ -z "${ORCA_BASE_REF}" ]]; then
+    return 0
+  fi
+
+  if git -C "${repo_path}" rev-parse --verify --quiet "${ORCA_BASE_REF}^{commit}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo "[start] ORCA_BASE_REF does not resolve to a commit: ${ORCA_BASE_REF}" >&2
+  echo "[start] set ORCA_BASE_REF to a valid ref (for example: main, origin/main, or a commit SHA)" >&2
+  return 1
 }
 
 worktree_is_clean() {
@@ -278,6 +295,10 @@ if [[ ! -x "${ORCA_MERGE_MAIN_PATH}" ]]; then
   exit 1
 fi
 
+if ! validate_explicit_base_ref "${ROOT}"; then
+  exit 1
+fi
+
 ensure_br_workspace
 
 if [[ "${MAX_RUNS}" -eq 0 ]]; then
@@ -302,7 +323,7 @@ for i in $(seq 1 "${COUNT}"); do
   fi
 
   echo "[start] launching ${session} in ${worktree}"
-  tmux_cmd="$(printf "cd %q && AGENT_NAME=%q AGENT_SESSION_ID=%q WORKTREE=%q AGENT_MODEL=%q AGENT_REASONING_LEVEL=%q AGENT_COMMAND=%q PROMPT_TEMPLATE=%q MAX_RUNS=%q RUN_SLEEP_SECONDS=%q ORCA_TIMING_METRICS=%q ORCA_COMPACT_SUMMARY=%q ORCA_PRIMARY_REPO=%q ORCA_WITH_LOCK_PATH=%q ORCA_LOCK_SCOPE=%q ORCA_LOCK_TIMEOUT_SECONDS=%q ORCA_QUEUE_WRITE_MAIN_PATH=%q ORCA_MERGE_MAIN_PATH=%q %q" \
+  tmux_cmd="$(printf "cd %q && AGENT_NAME=%q AGENT_SESSION_ID=%q WORKTREE=%q AGENT_MODEL=%q AGENT_REASONING_LEVEL=%q AGENT_COMMAND=%q PROMPT_TEMPLATE=%q MAX_RUNS=%q RUN_SLEEP_SECONDS=%q ORCA_TIMING_METRICS=%q ORCA_COMPACT_SUMMARY=%q ORCA_PRIMARY_REPO=%q ORCA_WITH_LOCK_PATH=%q ORCA_LOCK_SCOPE=%q ORCA_LOCK_TIMEOUT_SECONDS=%q ORCA_QUEUE_WRITE_MAIN_PATH=%q ORCA_MERGE_MAIN_PATH=%q ORCA_BASE_REF=%q %q" \
     "${ROOT}" \
     "agent-${i}" \
     "${session_id}" \
@@ -321,6 +342,7 @@ for i in $(seq 1 "${COUNT}"); do
     "${ORCA_LOCK_TIMEOUT_SECONDS}" \
     "${ORCA_QUEUE_WRITE_MAIN_PATH}" \
     "${ORCA_MERGE_MAIN_PATH}" \
+    "${ORCA_BASE_REF}" \
     "${SCRIPT_DIR}/agent-loop.sh")"
   tmux new-session -d -s "${session}" "${tmux_cmd}"
 

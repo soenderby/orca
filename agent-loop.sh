@@ -35,6 +35,7 @@ MAX_RUNS="${MAX_RUNS:-0}"
 RUN_SLEEP_SECONDS="${RUN_SLEEP_SECONDS:-2}"
 ORCA_TIMING_METRICS="${ORCA_TIMING_METRICS:-1}"
 ORCA_COMPACT_SUMMARY="${ORCA_COMPACT_SUMMARY:-1}"
+ORCA_PROTOCOL_MODE="${ORCA_PROTOCOL_MODE:-enable}"
 ORCA_LOCK_SCOPE="${ORCA_LOCK_SCOPE:-merge}"
 ORCA_LOCK_TIMEOUT_SECONDS="${ORCA_LOCK_TIMEOUT_SECONDS:-120}"
 AGENT_LOG_ROOT="${ROOT}/agent-logs"
@@ -57,6 +58,11 @@ fi
 
 if ! [[ "${ORCA_COMPACT_SUMMARY}" =~ ^[01]$ ]]; then
   echo "ORCA_COMPACT_SUMMARY must be 0 or 1: ${ORCA_COMPACT_SUMMARY}" >&2
+  exit 1
+fi
+
+if ! [[ "${ORCA_PROTOCOL_MODE}" =~ ^(enable|enforce)$ ]]; then
+  echo "ORCA_PROTOCOL_MODE must be enable or enforce: ${ORCA_PROTOCOL_MODE}" >&2
   exit 1
 fi
 
@@ -608,6 +614,7 @@ append_metrics_jsonl() {
     --arg summary_schema_reason_codes_csv "${RUN_SUMMARY_SCHEMA_REASON_CODES}" \
     --arg tokens_parse_status "${RUN_TOKENS_PARSE_STATUS}" \
     --arg harness_version "${HARNESS_VERSION}" \
+    --arg protocol_mode "${ORCA_PROTOCOL_MODE}" \
     --arg run_log "${LOGFILE}" \
     --arg summary_json "${SUMMARY_JSON_FILE}" \
     --arg summary_markdown "${SUMMARY_FILE}" \
@@ -622,6 +629,7 @@ append_metrics_jsonl() {
       agent_name: $agent,
       session_id: $session,
       harness_version: $harness_version,
+      protocol_mode: $protocol_mode,
       run_number: $run_number,
       exit_code: $exit_code,
       result: $result,
@@ -749,6 +757,7 @@ log "agent primary repo: ${PRIMARY_REPO}"
 log "agent lock helper: ${LOCK_HELPER_PATH}"
 log "agent queue write helper: ${QUEUE_WRITE_HELPER_PATH}"
 log "agent merge helper: ${MERGE_HELPER_PATH}"
+log "protocol mode: ${ORCA_PROTOCOL_MODE}"
 log "harness version: ${HARNESS_VERSION}"
 if [[ "${MAX_RUNS}" -eq 0 ]]; then
   log "run mode: unbounded"
@@ -799,6 +808,7 @@ while true; do
     ORCA_WITH_LOCK_PATH="${LOCK_HELPER_PATH}" \
     ORCA_QUEUE_WRITE_MAIN_PATH="${QUEUE_WRITE_HELPER_PATH}" \
     ORCA_MERGE_MAIN_PATH="${MERGE_HELPER_PATH}" \
+    ORCA_PROTOCOL_MODE="${ORCA_PROTOCOL_MODE}" \
     ORCA_LOCK_SCOPE="${ORCA_LOCK_SCOPE}" \
     ORCA_LOCK_TIMEOUT_SECONDS="${ORCA_LOCK_TIMEOUT_SECONDS}" \
     bash -lc "${RUN_AGENT_COMMAND}" < "${prompt_file}" >> "${LOGFILE}" 2>&1; then

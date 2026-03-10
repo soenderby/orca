@@ -14,19 +14,22 @@ The execution layer works. In past use, failures and rework traced primarily to 
 
 The harness manages loops, worktrees, artifacts, locks, and coordination — and provides tools that help agents coordinate safely (lock helpers, queue mutation helpers, merge helpers). The harness may enforce execution protocol and safety invariants, but must not encode task-selection, solution-strategy, or quality-judgment heuristics.
 
-### 2. Correctness invariants are enforced mechanically, not instructionally
+### 2. Safety guardrails are mechanical where practical; protocol is helper-first and observable
 
-If skipping something causes data loss, race conditions, or corrupted state, the harness must make it impossible to skip — not ask nicely in a prompt. If skipping something merely degrades quality, leave it to agent judgment.
+Orca runs in autonomy-first mode (see `docs/decision-log.md`, DL-001). The harness enforces cheap, deterministic guardrails where reliable, and treats the rest as protocol expectations supported by helpers and observability.
 
-Current invariants:
-- Publish claims through the queue mutation helper on main before coding (prevents duplicate/conflicting work across parallel agents)
-- All queue mutations go through the lock-guarded queue-write helper on main (prevents queue corruption)
-- Run branches must not carry .beads/ changes (prevents queue/code interleaving)
-- Merge and push go through the lock-guarded merge helper (prevents race conditions)
-- Clean worktree before starting a run (prevents state contamination)
-- Write valid summary JSON after every run (downstream tooling depends on it)
+Current hard guardrails:
+- Run branches carrying `.beads/` changes are rejected during merge (`merge-main.sh` guard).
+- Primary repo must be clean before queue/merge helper operations.
+- Clean worktree required before starting a non-running agent session.
+- Run summary JSON is required and schema-validated by the loop.
 
-Everything else is policy and must remain adjustable.
+Current protocol expectations (helper-first, not hard-blocked in all paths):
+- Publish claims via `queue-write-main.sh` on `ORCA_PRIMARY_REPO/main` before coding.
+- Perform queue mutations via `queue-write-main.sh`.
+- Perform integration via `merge-main.sh`.
+
+Protocol adherence is expected, measured through run artifacts, and revisited when violations become costly or frequent.
 
 ### 3. Keep mandatory context minimal; make optional context discoverable
 

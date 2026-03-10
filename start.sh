@@ -29,6 +29,7 @@ MAX_RUNS="${MAX_RUNS:-0}"
 RUN_SLEEP_SECONDS="${RUN_SLEEP_SECONDS:-2}"
 ORCA_TIMING_METRICS="${ORCA_TIMING_METRICS:-1}"
 ORCA_COMPACT_SUMMARY="${ORCA_COMPACT_SUMMARY:-1}"
+ORCA_PROTOCOL_MODE="${ORCA_PROTOCOL_MODE:-enable}"
 ORCA_LOCK_SCOPE="${ORCA_LOCK_SCOPE:-merge}"
 ORCA_LOCK_TIMEOUT_SECONDS="${ORCA_LOCK_TIMEOUT_SECONDS:-120}"
 ORCA_QUEUE_WRITE_MAIN_PATH="${ORCA_QUEUE_WRITE_MAIN_PATH:-}"
@@ -226,6 +227,11 @@ if ! [[ "${ORCA_COMPACT_SUMMARY}" =~ ^[01]$ ]]; then
   exit 1
 fi
 
+if ! [[ "${ORCA_PROTOCOL_MODE}" =~ ^(enable|enforce)$ ]]; then
+  echo "[start] ORCA_PROTOCOL_MODE must be enable or enforce: ${ORCA_PROTOCOL_MODE}" >&2
+  exit 1
+fi
+
 if ! [[ "${ORCA_LOCK_SCOPE}" =~ ^[A-Za-z0-9._-]+$ ]]; then
   echo "[start] ORCA_LOCK_SCOPE must contain only letters, digits, dot, underscore, or dash: ${ORCA_LOCK_SCOPE}" >&2
   exit 1
@@ -288,7 +294,7 @@ for i in $(seq 1 "${COUNT}"); do
   fi
 
   echo "[start] launching ${session} in ${worktree}"
-  tmux_cmd="$(printf "cd %q && AGENT_NAME=%q AGENT_SESSION_ID=%q WORKTREE=%q AGENT_MODEL=%q AGENT_REASONING_LEVEL=%q AGENT_COMMAND=%q PROMPT_TEMPLATE=%q MAX_RUNS=%q RUN_SLEEP_SECONDS=%q ORCA_TIMING_METRICS=%q ORCA_COMPACT_SUMMARY=%q ORCA_LOCK_SCOPE=%q ORCA_LOCK_TIMEOUT_SECONDS=%q ORCA_QUEUE_WRITE_MAIN_PATH=%q ORCA_MERGE_MAIN_PATH=%q %q" \
+  tmux_cmd="$(printf "cd %q && AGENT_NAME=%q AGENT_SESSION_ID=%q WORKTREE=%q AGENT_MODEL=%q AGENT_REASONING_LEVEL=%q AGENT_COMMAND=%q PROMPT_TEMPLATE=%q MAX_RUNS=%q RUN_SLEEP_SECONDS=%q ORCA_TIMING_METRICS=%q ORCA_COMPACT_SUMMARY=%q ORCA_PROTOCOL_MODE=%q ORCA_LOCK_SCOPE=%q ORCA_LOCK_TIMEOUT_SECONDS=%q ORCA_QUEUE_WRITE_MAIN_PATH=%q ORCA_MERGE_MAIN_PATH=%q %q" \
     "${ROOT}" \
     "agent-${i}" \
     "${session_id}" \
@@ -301,6 +307,7 @@ for i in $(seq 1 "${COUNT}"); do
     "${RUN_SLEEP_SECONDS}" \
     "${ORCA_TIMING_METRICS}" \
     "${ORCA_COMPACT_SUMMARY}" \
+    "${ORCA_PROTOCOL_MODE}" \
     "${ORCA_LOCK_SCOPE}" \
     "${ORCA_LOCK_TIMEOUT_SECONDS}" \
     "${ORCA_QUEUE_WRITE_MAIN_PATH}" \

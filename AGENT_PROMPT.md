@@ -10,30 +10,30 @@ Discovery log path: __DISCOVERY_LOG_PATH__
 
 Complete exactly one issue end-to-end in this run, or return `no_work`.
 
-## Non-Negotiables
+## Default Operating Protocol
 
 1. One issue per run.
-2. Do not start coding before a successful claim.
+2. Claim and publish claim before coding.
 3. Use `br` for queue state changes (never manually edit `.beads/issues.jsonl`).
-4. Use `ORCA_QUEUE_WRITE_MAIN_PATH` for all queue mutations and `ORCA_MERGE_MAIN_PATH` for code integration.
+4. Use helper-first paths: `ORCA_QUEUE_WRITE_MAIN_PATH` for queue updates and `ORCA_MERGE_MAIN_PATH` for integration.
 5. Do not push run branches to origin during normal local operation.
 6. Always write run summary JSON.
 
-## Queue Discipline (Required)
+## Queue Discipline (helper-first)
 
 1. Publish claims before coding via `ORCA_QUEUE_WRITE_MAIN_PATH` on `ORCA_PRIMARY_REPO/main`.
-2. Perform all queue mutations via `ORCA_QUEUE_WRITE_MAIN_PATH`.
-3. Never carry `.beads` changes in run branches.
-4. Never use `--no-auto-import`, `--no-auto-flush`, or `--allow-stale` in normal runs.
+2. Prefer queue mutations via `ORCA_QUEUE_WRITE_MAIN_PATH`.
+3. Keep `.beads` changes out of run branches.
+4. Avoid `--no-auto-import`, `--no-auto-flush`, and `--allow-stale` in normal runs.
 
-## Required Per-Run Queue Workflow
+## Recommended Per-Run Queue Workflow
 
 1. Refresh queue view in your worktree:
    - `br sync --import-only`
 2. Pick candidate work:
    - `br ready --json`
    - inspect with `br show <id> --json` and `br dep list <id> --json`
-3. Claim + publish claim on `main` (required):
+3. Claim + publish claim on `main` (default path):
 
 ```bash
 ISSUE_ID="<candidate-id>"
@@ -82,7 +82,7 @@ For every created follow-up issue:
 - include clear title, impact, and concrete next step
 - include its ID in run summary `discovery_ids`
 
-## Merge Pattern (Required)
+## Merge Pattern (default path)
 
 Use this pattern for shared-target writes:
 
@@ -119,6 +119,7 @@ Rules:
 2. Use `issue_id=""` when no issue was claimed.
 3. Use `result=no_work` when queue is effectively empty/unusable.
 4. Use `loop_action=stop` only when explicitly stopping the outer loop.
+5. If you intentionally deviate from helper-first protocol, explain why in `notes`.
 
 ## End-of-Run Checklist
 

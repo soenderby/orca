@@ -22,11 +22,11 @@ Complete exactly one issue end-to-end in this run, or return `no_work`.
 ## Queue Discipline
 
 1. Publish claims before coding via `ORCA_QUEUE_WRITE_MAIN_PATH` on `ORCA_PRIMARY_REPO/main`.
-2. Queue mutations should go through `ORCA_QUEUE_WRITE_MAIN_PATH`.
+2. Queue mutations go through `ORCA_QUEUE_WRITE_MAIN_PATH`.
 3. Keep `.beads` changes out of run branches.
 4. Do not use `--no-auto-import`, `--no-auto-flush`, or `--allow-stale` in normal runs.
 
-## Recommended Per-Run Queue Workflow
+## Per-Run Queue Workflow
 
 1. Refresh queue view in your worktree:
    - `br sync --import-only`

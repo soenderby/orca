@@ -37,12 +37,11 @@ br --version
 tmux -V
 jq --version
 flock --version
-codex --version
 ```
 
 Also ensure:
 
-1. you are authenticated in agent tooling (`codex login` if needed)
+1. your configured `AGENT_COMMAND` is available and authenticated
 2. repo has push access to `origin`
 3. queue workspace exists (`br init`, once)
 4. queue ID prefix is configured (`br config set id.prefix orca`, once)
@@ -201,4 +200,4 @@ Before ending a session:
 1. active failures are understood and noted
 2. blockers are reflected in issue notes
 3. important follow-up work is represented in `br` issues
-4. local repo state is synchronized and pushed per `AGENTS.md`
+4. local repo state is synchronized and pushed per normal repository workflow

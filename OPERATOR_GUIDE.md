@@ -12,16 +12,7 @@ Use Orca when you want to:
 
 ## Intent and Design Principles
 
-1. Transport over cognition:
-   - Orca scripts handle execution plumbing (`tmux`, loop lifecycle, artifact paths, lock primitives).
-   - Agents handle decisions (issue selection, status transitions, merge/close strategy, discovery handling).
-2. Explicit primitives over hidden heuristics:
-   - Provide lock, summary, and logging primitives.
-   - Encode only safety-critical invariants in scripts (queue writes on `main`, merge guards).
-3. Agent-owned lifecycle:
-   - Agents claim work, update issue status, merge/push, and close issues.
-4. Operational clarity:
-   - Every run leaves traceable artifacts (`run.log`, `summary.json`, `metrics.jsonl`, discovery logs).
+See `docs/design.md` for Orca's design principles and architectural constraints.
 
 ## When to Use Orca
 

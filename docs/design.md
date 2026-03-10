@@ -4,21 +4,23 @@ Orca is a local execution harness for running autonomous coding agents in parall
 
 Orca is not an agent framework. It does not abstract over LLM providers, manage prompt chains, or provide agent-building primitives. It manages the environment agents run in, not the agents themselves.
 
-The execution layer works. In past use, failures and rework traced primarily to task specification quality — unclear intent, missing constraints, absent design context — not to execution mechanics. Providing agents with specific tools for recurring tasks was the other significant factor in effectiveness.
+The execution layer works. In past use, failures and rework traced primarily to task specification quality — unclear intent, missing constraints, absent design context — not to execution mechanics. Providing agents with specific tools for recurring tasks was the other significant factor in effectiveness. These observations should inform where effort is spent, but they are not permanent truths — revisit as the system matures.
 
 ## Design Principles
 
 ### 1. The harness handles transport and coordination tools; agents handle decisions
 
-The harness manages loops, worktrees, artifacts, locks, and coordination — and provides tools that help agents coordinate safely (lock helpers, queue mutation helpers, merge helpers). It does not decide what agents should work on, how they should approach a problem, or what constitutes good output. Any harness change that encodes task policy or implementation preference is wrong.
+The harness manages loops, worktrees, artifacts, locks, and coordination — and provides tools that help agents coordinate safely (lock helpers, queue mutation helpers, merge helpers). The harness may enforce execution protocol and safety invariants, but must not encode task-selection, solution-strategy, or quality-judgment heuristics.
 
 ### 2. Correctness invariants are enforced mechanically, not instructionally
 
 If skipping something causes data loss, race conditions, or corrupted state, the harness must make it impossible to skip — not ask nicely in a prompt. If skipping something merely degrades quality, leave it to agent judgment.
 
 Current invariants:
-- Claim an issue before coding (prevents duplicate/conflicting work)
-- Hold the lock before merging to main (prevents race conditions)
+- Publish claims through the queue mutation helper on main before coding (prevents duplicate/conflicting work across parallel agents)
+- All queue mutations go through the lock-guarded queue-write helper on main (prevents queue corruption)
+- Run branches must not carry .beads/ changes (prevents queue/code interleaving)
+- Merge and push go through the lock-guarded merge helper (prevents race conditions)
 - Clean worktree before starting a run (prevents state contamination)
 - Write valid summary JSON after every run (downstream tooling depends on it)
 
@@ -30,7 +32,7 @@ A large mandatory prompt crowds out task context and anchors agents on prescribe
 
 Growth in mandatory context must be justified by a correctness need, not by a desire to improve quality.
 
-### 4. Do not encode reasoning in the harness
+### 4. Do not encode runtime reasoning in the harness
 
 The harness is a thin, deterministic shell. Ranking, scoring, selecting, classifying, inferring complexity, deciding what should happen next at runtime — these are reasoning tasks that belong to the model, not to shell scripts or heuristics. When the harness reaches a runtime decision point, the answer is to give the decision to an agent, not to write a conditional.
 
@@ -38,14 +40,12 @@ The harness is a thin, deterministic shell. Ranking, scoring, selecting, classif
 
 The system must produce structured, machine-readable artifacts for every run — logs, summaries, metrics, queue state changes. If a behavior can't be observed after the fact, it can't be diagnosed, compared, or improved. Reject any feature that doesn't leave a trace. Reject any trace that can't be queried.
 
-### 6. Prefer the cheapest realization that tests the idea
+### 6. Prefer the cheapest realization that tests the idea — unless correctness or observability is at stake
 
-A prompt change before a script. A script before a subsystem. A manual experiment before automation. The right time to build infrastructure is after a lightweight version has proven the idea works. Most ideas don't survive contact with reality; build for the ones that do.
+A prompt change before a script. A script before a subsystem. A manual experiment before automation. The right time to build infrastructure is after a lightweight version has proven the idea works.
 
-### 7. Task specification has been the highest-leverage improvement area
+The exception: when correctness (principle 2) or observability (principle 5) is at stake, do the safe thing, not the cheap thing.
 
-In past use, agent failures were predominantly specification failures: missing design intent, ambiguous scope, unstated constraints. Tooling and practices that helped produce better task specs — clearer acceptance criteria, explicit design intent, plan-before-execute checkpoints — delivered more value than execution layer refinements. This may change as the system matures.
-
-### 8. The system improves through use, not through planning
+### 7. The system improves through use, not through planning
 
 Design documents that are not motivated by observed problems in real runs are speculative. Run the system, observe what fails, fix what matters. Planning is valuable when it processes evidence; it is waste when it precedes evidence.

@@ -31,6 +31,8 @@ ORCA_TIMING_METRICS="${ORCA_TIMING_METRICS:-1}"
 ORCA_COMPACT_SUMMARY="${ORCA_COMPACT_SUMMARY:-1}"
 ORCA_LOCK_SCOPE="${ORCA_LOCK_SCOPE:-merge}"
 ORCA_LOCK_TIMEOUT_SECONDS="${ORCA_LOCK_TIMEOUT_SECONDS:-120}"
+ORCA_PRIMARY_REPO="${ORCA_PRIMARY_REPO:-}"
+ORCA_WITH_LOCK_PATH="${ORCA_WITH_LOCK_PATH:-}"
 ORCA_QUEUE_WRITE_MAIN_PATH="${ORCA_QUEUE_WRITE_MAIN_PATH:-}"
 ORCA_MERGE_MAIN_PATH="${ORCA_MERGE_MAIN_PATH:-}"
 
@@ -198,6 +200,8 @@ check_prerequisites
 
 ROOT="$(git rev-parse --show-toplevel)"
 PROMPT_TEMPLATE="${PROMPT_TEMPLATE:-${ROOT}/AGENT_PROMPT.md}"
+ORCA_PRIMARY_REPO="${ORCA_PRIMARY_REPO:-${ROOT}}"
+ORCA_WITH_LOCK_PATH="${ORCA_WITH_LOCK_PATH:-${ROOT}/with-lock.sh}"
 ORCA_QUEUE_WRITE_MAIN_PATH="${ORCA_QUEUE_WRITE_MAIN_PATH:-${ROOT}/queue-write-main.sh}"
 ORCA_MERGE_MAIN_PATH="${ORCA_MERGE_MAIN_PATH:-${ROOT}/merge-main.sh}"
 
@@ -254,6 +258,16 @@ if [[ ! -f "${PROMPT_TEMPLATE}" ]]; then
   exit 1
 fi
 
+if ! git -C "${ORCA_PRIMARY_REPO}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "[start] ORCA_PRIMARY_REPO does not look like a git worktree: ${ORCA_PRIMARY_REPO}" >&2
+  exit 1
+fi
+
+if [[ ! -x "${ORCA_WITH_LOCK_PATH}" ]]; then
+  echo "[start] ORCA_WITH_LOCK_PATH must be executable: ${ORCA_WITH_LOCK_PATH}" >&2
+  exit 1
+fi
+
 if [[ ! -x "${ORCA_QUEUE_WRITE_MAIN_PATH}" ]]; then
   echo "[start] ORCA_QUEUE_WRITE_MAIN_PATH must be executable: ${ORCA_QUEUE_WRITE_MAIN_PATH}" >&2
   exit 1
@@ -288,7 +302,7 @@ for i in $(seq 1 "${COUNT}"); do
   fi
 
   echo "[start] launching ${session} in ${worktree}"
-  tmux_cmd="$(printf "cd %q && AGENT_NAME=%q AGENT_SESSION_ID=%q WORKTREE=%q AGENT_MODEL=%q AGENT_REASONING_LEVEL=%q AGENT_COMMAND=%q PROMPT_TEMPLATE=%q MAX_RUNS=%q RUN_SLEEP_SECONDS=%q ORCA_TIMING_METRICS=%q ORCA_COMPACT_SUMMARY=%q ORCA_LOCK_SCOPE=%q ORCA_LOCK_TIMEOUT_SECONDS=%q ORCA_QUEUE_WRITE_MAIN_PATH=%q ORCA_MERGE_MAIN_PATH=%q %q" \
+  tmux_cmd="$(printf "cd %q && AGENT_NAME=%q AGENT_SESSION_ID=%q WORKTREE=%q AGENT_MODEL=%q AGENT_REASONING_LEVEL=%q AGENT_COMMAND=%q PROMPT_TEMPLATE=%q MAX_RUNS=%q RUN_SLEEP_SECONDS=%q ORCA_TIMING_METRICS=%q ORCA_COMPACT_SUMMARY=%q ORCA_PRIMARY_REPO=%q ORCA_WITH_LOCK_PATH=%q ORCA_LOCK_SCOPE=%q ORCA_LOCK_TIMEOUT_SECONDS=%q ORCA_QUEUE_WRITE_MAIN_PATH=%q ORCA_MERGE_MAIN_PATH=%q %q" \
     "${ROOT}" \
     "agent-${i}" \
     "${session_id}" \
@@ -301,6 +315,8 @@ for i in $(seq 1 "${COUNT}"); do
     "${RUN_SLEEP_SECONDS}" \
     "${ORCA_TIMING_METRICS}" \
     "${ORCA_COMPACT_SUMMARY}" \
+    "${ORCA_PRIMARY_REPO}" \
+    "${ORCA_WITH_LOCK_PATH}" \
     "${ORCA_LOCK_SCOPE}" \
     "${ORCA_LOCK_TIMEOUT_SECONDS}" \
     "${ORCA_QUEUE_WRITE_MAIN_PATH}" \

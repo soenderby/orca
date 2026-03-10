@@ -14,7 +14,7 @@ The execution layer works. In past use, failures and rework traced primarily to 
 
 The harness manages loops, worktrees, artifacts, locks, and coordination — and provides tools that help agents coordinate safely (lock helpers, queue mutation helpers, merge helpers). The harness may enforce execution protocol and safety invariants, but must not encode task-selection, solution-strategy, or quality-judgment heuristics.
 
-### 2. Safety guardrails are mechanical where practical; protocol is helper-first and observable
+### 2. Safety guardrails are mechanical where practical; protocol is explicit and observable
 
 Orca runs in autonomy-first mode (see `docs/decision-log.md`, DL-001). The harness enforces cheap, deterministic guardrails where reliable, and treats the rest as protocol expectations supported by helpers and observability.
 
@@ -24,7 +24,7 @@ Current hard guardrails:
 - Clean worktree required before starting a non-running agent session.
 - Run summary JSON is required and schema-validated by the loop.
 
-Current protocol expectations (helper-first, not hard-blocked in all paths):
+Current protocol expectations (explicit, not hard-blocked in all paths):
 - Publish claims via `queue-write-main.sh` on `ORCA_PRIMARY_REPO/main` before coding.
 - Perform queue mutations via `queue-write-main.sh`.
 - Perform integration via `merge-main.sh`.

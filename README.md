@@ -32,8 +32,8 @@ Orca with `br` uses git-based async queue collaboration (`.beads/issues.jsonl`),
 1. `br` claim atomicity (`--claim`) is scoped to a SQLite DB snapshot.
 2. Agents run in separate worktrees, so stale snapshots can produce duplicate local claims unless claims are published centrally.
 3. Orca policy: claim publication is lock-guarded against `ORCA_PRIMARY_REPO/main` before coding, using the same writer lock scope as merge/push (see `AGENT_PROMPT.md`).
-4. Queue mutation policy (helper-first):
-   - default path uses `queue-write-main.sh` on `ORCA_PRIMARY_REPO/main`
+4. Queue mutation policy:
+   - use `queue-write-main.sh` on `ORCA_PRIMARY_REPO/main`
    - do not carry `.beads/` changes in run branches
 5. Queue sync lifecycle:
    - import before selecting/claiming (`br sync --import-only`)
@@ -43,7 +43,7 @@ Orca with `br` uses git-based async queue collaboration (`.beads/issues.jsonl`),
 7. Run branches are local transport state; do not push them to origin in normal local Orca operation.
 8. Cross-machine note: lock files are local. Concurrency across machines is resolved by git publication order on `main` (losing claim attempts must re-import and pick another issue).
 
-Operating stance: helper-first with autonomy (Option C; see `docs/decision-log.md`, DL-001). Orca provides safety guardrails and observability, while agents retain broad execution autonomy.
+Operating stance: autonomy with explicit protocol guidance (Option C; see `docs/decision-log.md`, DL-001). Orca provides safety guardrails and observability, while agents retain broad execution autonomy.
 
 ## Commands
 
@@ -106,7 +106,7 @@ Notes:
 
 ### Queue Mutation Pattern (`queue-write-main.sh`)
 
-Default helper-first path for queue mutations (claim, comments, state transitions, discovery issue creation, dependency edges):
+Queue mutation pattern for claim, comments, state transitions, discovery issue creation, and dependency edges:
 
 ```bash
 ISSUE_ID="<candidate-id>"
@@ -126,7 +126,7 @@ Helper guarantees:
 
 ### Merge Pattern (`merge-main.sh`)
 
-Default helper-first path for run-branch integration:
+Merge pattern for run-branch integration:
 
 ```bash
 "${ORCA_MERGE_MAIN_PATH}" --source "$(git branch --show-current)"

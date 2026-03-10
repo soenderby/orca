@@ -14,7 +14,7 @@ Use Orca when you want to:
 
 See `docs/design.md` for Orca's design principles and architectural constraints.
 
-Current operating stance: helper-first autonomy (Option C; see `docs/decision-log.md`, DL-001). Operators should treat helper usage as the default path, monitor deviations through run artifacts, and escalate to stronger enforcement only when violations become costly or frequent.
+Current operating stance: autonomy with explicit protocol guidance (Option C; see `docs/decision-log.md`, DL-001). Operators should monitor protocol deviations through run artifacts and escalate to stronger enforcement only when violations become costly or frequent.
 
 ## When to Use Orca
 
@@ -54,7 +54,7 @@ Also ensure:
 1. `br` collaboration is git-based and async (`.beads/issues.jsonl`), not a central queue server.
 2. `--claim` is atomic per SQLite DB snapshot.
 3. Orca agents run in separate worktrees, so stale snapshots can still race unless claims are published centrally.
-4. Orca helper-first policy uses `queue-write-main.sh` on `ORCA_PRIMARY_REPO/main` for queue mutations before/after coding as needed.
+4. Orca policy uses `queue-write-main.sh` on `ORCA_PRIMARY_REPO/main` for queue mutations before/after coding as needed.
 5. Run branches must not carry `.beads/` changes; integration is code-only.
 6. Sync expectations:
    - import before claim/select (`br sync --import-only`)
@@ -187,7 +187,7 @@ Scale down cleanly:
    - check `git -C worktrees/agent-N status --short`
    - inspect for leftover `.beads/` or partial code edits
    - commit/stash/discard changes in that worktree, then rerun `./orca.sh start`
-6. Protocol drift (helper-first deviations):
+6. Protocol drift (deviations from queue/merge protocol):
    - inspect `summary.json`/`summary.md` notes and `run.log` for justification
    - if repeated and costly, record incident and reopen constraint strategy per `docs/decision-log.md` DL-001
 

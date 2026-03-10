@@ -12,10 +12,10 @@ This file records explicit architecture and operating decisions, including why t
 
 ### Decision
 
-Adopt **Option C** for now: treat queue/merge/coordination helpers primarily as enabling tools for agents, not hard enforcement boundaries.
+Adopt **Option C** for now: treat queue/merge/coordination helpers as the standard operational path in prompts/docs, without introducing hard runtime enforcement boundaries.
 
 In practical terms:
-- keep helper-first guidance in prompts/docs,
+- keep protocol guidance explicit in prompts/docs,
 - keep observability and traceability strong,
 - do not add strict OS/runtime enforcement layers yet.
 

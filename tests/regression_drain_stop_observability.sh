@@ -49,6 +49,7 @@ bash "${ROOT}/agent-loop.sh" >/dev/null 2>&1
 
 RUN_DIR="$(find "${ROOT}/agent-logs/sessions" -type d -path "*/${SESSION_ID}/runs/*" | sort | tail -n 1)"
 SUMMARY_MD="${RUN_DIR}/summary.md"
+SESSION_LOG="$(find "${ROOT}/agent-logs/sessions" -type f -path "*/${SESSION_ID}/session.log" | sort | tail -n 1)"
 RUN_COUNT="$(find "${ROOT}/agent-logs/sessions" -type d -path "*/${SESSION_ID}/runs/*" | wc -l | tr -d '[:space:]')"
 
 if [[ ! -f "${SUMMARY_MD}" ]]; then
@@ -69,7 +70,15 @@ jq -e \
   --arg reason "${EXPECTED_REASON}" \
   'select(.session_id == $session and .run_number == 1)
    | .summary.loop_action == "stop"
-   and .summary.loop_action_reason == $reason' \
+   and .summary.loop_action_reason == $reason
+   and has("mode_id")
+   and has("approach_source")
+   and has("approach_sha256")
+   and (.mode_id == null)
+   and (.approach_source == null)
+   and (.approach_sha256 == null)' \
   "${ROOT}/agent-logs/metrics.jsonl" >/dev/null
+
+grep -F -- "configured mode attribution: mode_id=none approach_source=none approach_sha256=none" "${SESSION_LOG}" >/dev/null
 
 echo "drain-stop observability regression passed"

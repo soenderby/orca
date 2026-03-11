@@ -9,6 +9,40 @@ ORCA_STATUS_CLAIMED_LIMIT="${ORCA_STATUS_CLAIMED_LIMIT:-20}"
 ORCA_STATUS_CLOSED_LIMIT="${ORCA_STATUS_CLOSED_LIMIT:-10}"
 ORCA_STATUS_RECENT_METRIC_LIMIT="${ORCA_STATUS_RECENT_METRIC_LIMIT:-10}"
 FIELD_SEP=$'\x1f'
+STATUS_MODE="quick"
+
+usage() {
+  cat <<USAGE
+Usage:
+  ./orca.sh status [--quick|--full]
+  ./status.sh [--quick|--full]
+
+Modes:
+  --quick  Fast active-operations summary (default)
+  --full   Full diagnostics (legacy status output)
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --quick)
+      STATUS_MODE="quick"
+      ;;
+    --full)
+      STATUS_MODE="full"
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown status option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+  shift
+done
 
 count_non_empty_lines() {
   local text="${1:-}"
@@ -105,6 +139,174 @@ add_alert() {
 
   ALERTS+=("${message}")
 }
+
+run_quick_status() {
+  local tmux_available=0
+  local tmux_sessions=""
+  local tmux_count=0
+  local worktree_list=""
+  local agent_worktree_paths=""
+  local agent_worktree_count=0
+  local main_dirty_count=0
+  local br_available=0
+  local br_version="unavailable"
+  local br_workspace_present=0
+  local metrics_available=0
+  local last_timestamp=""
+  local last_agent=""
+  local last_result=""
+  local last_issue=""
+  local last_duration="0"
+  local last_tokens="n/a"
+  local claimed_json="[]"
+  local claimed_count=0
+  local claimed_rows=""
+  local last_age_seconds
+
+  if command -v tmux >/dev/null 2>&1; then
+    tmux_available=1
+    tmux_sessions="$(tmux ls -F '#S' 2>/dev/null | grep "^${SESSION_PREFIX}-" || true)"
+  fi
+  tmux_count="$(count_non_empty_lines "${tmux_sessions}")"
+
+  worktree_list="$(git worktree list 2>/dev/null || true)"
+  agent_worktree_paths="$(
+    printf '%s\n' "${worktree_list}" \
+      | awk -v root="${ROOT}/worktrees/agent-" '$1 ~ "^" root {print $1}'
+  )"
+  agent_worktree_count="$(
+    printf '%s\n' "${agent_worktree_paths}" \
+      | sed '/^[[:space:]]*$/d' \
+      | wc -l \
+      | tr -d '[:space:]'
+  )"
+
+  main_dirty_count="$(count_non_empty_lines "$(git -C "${ROOT}" status --porcelain --untracked-files=normal 2>/dev/null || true)")"
+
+  if command -v br >/dev/null 2>&1; then
+    br_version="$(br --version 2>&1 | head -n 1)"
+    if br --version >/dev/null 2>&1; then
+      br_available=1
+    fi
+  fi
+  if [[ -d "${ROOT}/.beads" ]]; then
+    br_workspace_present=1
+  fi
+
+  if [[ -f "${METRICS_FILE}" && -s "${METRICS_FILE}" && -r "${METRICS_FILE}" ]] && command -v jq >/dev/null 2>&1; then
+    local last_line
+    local summary_line
+    last_line="$(tail -n 1 "${METRICS_FILE}" 2>/dev/null || true)"
+    if [[ -n "${last_line}" ]]; then
+      summary_line="$(
+        printf '%s\n' "${last_line}" | jq -r '
+          [
+            (.timestamp // ""),
+            (.agent_name // ""),
+            (.result // ""),
+            (.issue_id // ""),
+            ((.durations_seconds.iteration_total // 0) | tostring),
+            (if .tokens_used == null then "n/a" else (.tokens_used | tostring) end)
+          ] | join("\u001f")
+        ' 2>/dev/null || true
+      )"
+      if [[ -n "${summary_line}" ]]; then
+        IFS="${FIELD_SEP}" read -r last_timestamp last_agent last_result last_issue last_duration last_tokens <<< "${summary_line}"
+        metrics_available=1
+      fi
+    fi
+  fi
+
+  if [[ "${br_available}" -eq 1 && "${br_workspace_present}" -eq 1 ]]; then
+    claimed_json="$(br list --status in_progress --sort updated --reverse --limit "${ORCA_STATUS_CLAIMED_LIMIT}" --json 2>/dev/null || echo "[]")"
+    claimed_count="$(printf '%s\n' "${claimed_json}" | jq -r 'length' 2>/dev/null || echo "0")"
+    claimed_rows="$(printf '%s\n' "${claimed_json}" | jq -r '.[:5][] | "\(.id): \(.title)"' 2>/dev/null || true)"
+  fi
+
+  if [[ "${tmux_available}" -eq 1 && "${tmux_count}" -eq 0 ]]; then
+    add_alert "No active tmux sessions with prefix ${SESSION_PREFIX}."
+  fi
+  if [[ "${main_dirty_count}" -gt 0 ]]; then
+    add_alert "Primary repo has ${main_dirty_count} uncommitted path(s)."
+  fi
+  if [[ "${br_available}" -eq 0 ]]; then
+    add_alert "br (beads_rust) is not installed or not executable."
+  fi
+  if [[ "${br_workspace_present}" -eq 0 ]]; then
+    add_alert "Queue workspace missing: ${ROOT}/.beads (run br init)."
+  fi
+  if [[ "${metrics_available}" -eq 1 ]]; then
+    if last_age_seconds="$(timestamp_to_epoch "${last_timestamp}")"; then
+      last_age_seconds="$(( $(date +%s) - last_age_seconds ))"
+      if (( last_age_seconds < 0 )); then
+        last_age_seconds=0
+      fi
+      if (( tmux_count > 0 && last_age_seconds > ORCA_STATUS_STALE_SECONDS )); then
+        add_alert "Last metrics row is stale (${last_age_seconds}s old; threshold ${ORCA_STATUS_STALE_SECONDS}s)."
+      fi
+    fi
+    if [[ "${last_result}" != "completed" && "${last_result}" != "no_work" ]]; then
+      add_alert "Most recent run result is ${last_result} (issue=${last_issue:-none}, agent=${last_agent:-unknown-agent})."
+    fi
+  fi
+
+  echo "== orca health (quick) =="
+  echo "time: $(date -Iseconds)"
+  echo "repo: ${ROOT}"
+  echo "mode: quick (default; use --full for full diagnostics)"
+  if [[ "${tmux_available}" -eq 1 ]]; then
+    echo "sessions (${SESSION_PREFIX}-*): ${tmux_count}"
+  else
+    echo "sessions (${SESSION_PREFIX}-*): tmux not installed"
+  fi
+  echo "agent worktrees: ${agent_worktree_count}"
+  echo "primary repo dirty paths: ${main_dirty_count}"
+  echo "claimed issues: ${claimed_count}"
+  if [[ "${metrics_available}" -eq 1 ]]; then
+    echo "latest activity: $(format_age_from_timestamp "${last_timestamp}") agent=${last_agent:-unknown-agent} result=${last_result:-unknown} issue=${last_issue:-none} duration=$(format_seconds_short "${last_duration}") tokens=${last_tokens:-n/a}"
+  else
+    echo "latest activity: unavailable"
+  fi
+
+  if [[ "${#ALERTS[@]}" -eq 0 ]]; then
+    echo "health: OK"
+  else
+    echo "health: ATTENTION (${#ALERTS[@]} alert(s))"
+    for alert in "${ALERTS[@]}"; do
+      echo "- ${alert}"
+    done
+  fi
+
+  echo
+  echo "== queue backend (quick) =="
+  echo "br version: ${br_version}"
+  echo "workspace: $([[ "${br_workspace_present}" -eq 1 ]] && echo present || echo missing)"
+
+  echo
+  echo "== active sessions =="
+  if [[ "${tmux_available}" -eq 1 ]]; then
+    if [[ -n "${tmux_sessions}" ]]; then
+      printf '%s\n' "${tmux_sessions}"
+    else
+      echo "(none)"
+    fi
+  else
+    echo "(tmux not installed)"
+  fi
+
+  echo
+  echo "== active claims (top 5) =="
+  if [[ -n "${claimed_rows}" ]]; then
+    printf '%s\n' "${claimed_rows}"
+  else
+    echo "(none)"
+  fi
+}
+
+if [[ "${STATUS_MODE}" == "quick" ]]; then
+  run_quick_status
+  exit 0
+fi
 
 tmux_available=0
 tmux_sessions=""

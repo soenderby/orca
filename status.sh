@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel)"
 SESSION_PREFIX="${SESSION_PREFIX:-orca-agent}"
 METRICS_FILE="${ROOT}/agent-logs/metrics.jsonl"
+ORCA_STATUS_CACHE_DIR="${ORCA_STATUS_CACHE_DIR:-${ROOT}/agent-logs/cache}"
+ORCA_STATUS_METRICS_CACHE_MAX_FILES="${ORCA_STATUS_METRICS_CACHE_MAX_FILES:-5}"
 ORCA_STATUS_STALE_SECONDS="${ORCA_STATUS_STALE_SECONDS:-900}"
 ORCA_STATUS_CLAIMED_LIMIT="${ORCA_STATUS_CLAIMED_LIMIT:-20}"
 ORCA_STATUS_CLOSED_LIMIT="${ORCA_STATUS_CLOSED_LIMIT:-10}"
@@ -138,6 +140,120 @@ add_alert() {
   done
 
   ALERTS+=("${message}")
+}
+
+metrics_fingerprint() {
+  local file_path="$1"
+  local stat_output=""
+
+  if [[ ! -f "${file_path}" ]]; then
+    return 1
+  fi
+
+  stat_output="$(stat -c '%s:%Y' "${file_path}" 2>/dev/null || true)"
+  if [[ -z "${stat_output}" ]]; then
+    return 1
+  fi
+
+  printf '%s\n' "${stat_output}"
+}
+
+load_full_metrics_summary_from_cache() {
+  local -n out_summary_line_ref="$1"
+  local -n out_agent_rows_ref="$2"
+  local metrics_fp=""
+  local cache_key=""
+  local cache_file=""
+  local tmp_cache_file=""
+  local combined_json=""
+  local -a _status_cache_files=()
+
+  out_summary_line_ref=""
+  out_agent_rows_ref=""
+
+  if [[ ! -f "${METRICS_FILE}" || ! -s "${METRICS_FILE}" || ! -r "${METRICS_FILE}" ]]; then
+    return 1
+  fi
+
+  if ! metrics_fp="$(metrics_fingerprint "${METRICS_FILE}")"; then
+    return 1
+  fi
+
+  cache_key="$(printf '%s\n' "${metrics_fp}" | tr -c '[:alnum:]' '_')"
+  cache_file="${ORCA_STATUS_CACHE_DIR}/status-metrics-full-${cache_key}.json"
+
+  if [[ ! -f "${cache_file}" ]]; then
+    mkdir -p "${ORCA_STATUS_CACHE_DIR}"
+    tmp_cache_file="$(mktemp "${ORCA_STATUS_CACHE_DIR}/status-metrics-full-${cache_key}.tmp.XXXXXX")"
+    if ! jq -s -c '
+      def row_to_text:
+        [
+          (.agent_name // "unknown-agent"),
+          (.timestamp // "unknown-time"),
+          (.result // "unknown"),
+          (.issue_id // "none"),
+          ((.durations_seconds.iteration_total // 0) | tostring),
+          (if .tokens_used == null then "n/a" else (.tokens_used | tostring) end),
+          ((.summary.loop_action // .loop_action // "n/a") | tostring),
+          ((.summary.loop_action_reason // .loop_action_reason // "") | tostring)
+        ] | join("\u001f");
+      if length == 0 then
+        {
+          summary_line: "",
+          agent_activity_rows: []
+        }
+      else
+        {
+          summary_line: (
+            [
+              (length | tostring),
+              (map(select(.result == "completed")) | length | tostring),
+              (map(select(.result == "blocked")) | length | tostring),
+              (map(select(.result == "failed")) | length | tostring),
+              (map(select(.result == "no_work")) | length | tostring),
+              (.[-1].timestamp // ""),
+              (.[-1].agent_name // ""),
+              (.[-1].result // ""),
+              (.[-1].issue_id // ""),
+              ((.[-1].durations_seconds.iteration_total // 0) | tostring),
+              (if .[-1].tokens_used == null then "n/a" else (.[-1].tokens_used | tostring) end)
+            ] | join("\u001f")
+          ),
+          agent_activity_rows: (
+            sort_by(.timestamp // "")
+            | reverse
+            | unique_by(.agent_name)
+            | sort_by(.agent_name)
+            | map(row_to_text)
+          )
+        }
+      end
+    ' "${METRICS_FILE}" > "${tmp_cache_file}" 2>/dev/null; then
+      rm -f "${tmp_cache_file}"
+      return 1
+    fi
+
+    mv "${tmp_cache_file}" "${cache_file}"
+
+    mapfile -t _status_cache_files < <(ls -1t "${ORCA_STATUS_CACHE_DIR}"/status-metrics-full-*.json 2>/dev/null || true)
+    if (( ${#_status_cache_files[@]} > ORCA_STATUS_METRICS_CACHE_MAX_FILES )); then
+      printf '%s\n' "${_status_cache_files[@]:ORCA_STATUS_METRICS_CACHE_MAX_FILES}" | xargs -r rm -f
+    fi
+  fi
+
+  combined_json="$(cat "${cache_file}" 2>/dev/null || true)"
+  if [[ -z "${combined_json}" ]]; then
+    return 1
+  fi
+
+  out_summary_line_ref="$(printf '%s\n' "${combined_json}" | jq -r '.summary_line // ""' 2>/dev/null || true)"
+  out_agent_rows_ref="$(printf '%s\n' "${combined_json}" | jq -r '.agent_activity_rows[]?' 2>/dev/null || true)"
+
+  if [[ -z "${out_summary_line_ref}" ]]; then
+    return 1
+  fi
+
+  return 0
 }
 
 run_quick_status() {
@@ -402,51 +518,11 @@ agent_activity_rows=""
 recent_metrics_rows=""
 
 if [[ -f "${METRICS_FILE}" && -s "${METRICS_FILE}" && -r "${METRICS_FILE}" ]] && command -v jq >/dev/null 2>&1; then
-  summary_line="$(jq -s -r '
-      if length == 0 then
-        empty
-      else
-        [
-          (length | tostring),
-          (map(select(.result == "completed")) | length | tostring),
-          (map(select(.result == "blocked")) | length | tostring),
-          (map(select(.result == "failed")) | length | tostring),
-          (map(select(.result == "no_work")) | length | tostring),
-          (.[-1].timestamp // ""),
-          (.[-1].agent_name // ""),
-          (.[-1].result // ""),
-          (.[-1].issue_id // ""),
-          ((.[-1].durations_seconds.iteration_total // 0) | tostring),
-          (if .[-1].tokens_used == null then "n/a" else (.[-1].tokens_used | tostring) end)
-        ] | join("\u001f")
-      end
-    ' "${METRICS_FILE}" 2>/dev/null || true)"
-
-  if [[ -n "${summary_line}" ]]; then
+  summary_line=""
+  if load_full_metrics_summary_from_cache summary_line agent_activity_rows; then
     IFS="${FIELD_SEP}" read -r total_runs completed_runs blocked_runs failed_runs no_work_runs last_timestamp last_agent last_result last_issue last_duration last_tokens <<< "${summary_line}"
     metrics_summary_available=1
   fi
-
-  agent_activity_rows="$(
-    jq -s -r '
-      sort_by(.timestamp // "")
-      | reverse
-      | unique_by(.agent_name)
-      | sort_by(.agent_name)
-      | .[]
-      | [
-          (.agent_name // "unknown-agent"),
-          (.timestamp // "unknown-time"),
-          (.result // "unknown"),
-          (.issue_id // "none"),
-          ((.durations_seconds.iteration_total // 0) | tostring),
-          (if .tokens_used == null then "n/a" else (.tokens_used | tostring) end),
-          ((.summary.loop_action // .loop_action // "n/a") | tostring),
-          ((.summary.loop_action_reason // .loop_action_reason // "") | tostring)
-        ]
-      | join("\u001f")
-    ' "${METRICS_FILE}" 2>/dev/null || true
-  )"
 
   recent_metrics_rows="$(
     tail -n "${ORCA_STATUS_RECENT_METRIC_LIMIT}" "${METRICS_FILE}" 2>/dev/null \

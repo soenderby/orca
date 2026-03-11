@@ -242,6 +242,8 @@ Signal handling:
 5. in full mode, prints tmux sessions and git worktrees
 6. in full mode, prints queue snapshots (`in_progress`, `closed`)
 7. in full mode, prints latest metrics rows with agent and relative age
+8. full-mode metrics summary is cached by `metrics.jsonl` fingerprint (`size:mtime`) under `agent-logs/cache`; unchanged files reuse cached counters/agent latest rows
+9. cache limitation: the first `--full` call after any `metrics.jsonl` change still performs a full parse to refresh cache
 
 Tuning knobs:
 
@@ -249,6 +251,12 @@ Tuning knobs:
 - `ORCA_STATUS_CLAIMED_LIMIT` (default `20`)
 - `ORCA_STATUS_CLOSED_LIMIT` (default `10`)
 - `ORCA_STATUS_RECENT_METRIC_LIMIT` (default `10`)
+- `ORCA_STATUS_CACHE_DIR` (default `agent-logs/cache`)
+- `ORCA_STATUS_METRICS_CACHE_MAX_FILES` (default `5`)
+
+Performance regression check:
+
+- `bash tests/status_metrics_perf_check.sh`
 
 ## Error Handling Model
 

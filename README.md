@@ -50,7 +50,7 @@ Operating stance: autonomy with explicit protocol guidance (Option C; see `docs/
 
 - `start [count] [--runs N|--continuous] [--drain|--watch] [--no-work-retries N] [--reasoning-level LEVEL]`
 - `stop`
-- `status`
+- `status [--quick|--full]`
 - `gc-run-branches [--apply] [--base REF]`
 - `setup-worktrees [count]`
 - `with-lock [--scope NAME] [--timeout SECONDS] -- <command> [args...]`
@@ -235,13 +235,13 @@ Signal handling:
 
 ### `status.sh`
 
-1. prints an `orca health` summary (sessions, agent worktrees, primary repo dirty count, metrics rollup)
-2. prints queue backend status for `br` (version, workspace presence, doctor result, sync status)
-3. emits explicit alerts for high-signal conditions (no sessions, stale metrics, non-completed latest run, unhealthy queue workspace, dirty agent worktrees)
-4. prints per-agent latest activity from `metrics.jsonl` (result, issue, age, duration, tokens, loop action)
-5. prints tmux sessions and git worktrees
-6. prints queue snapshots (`in_progress`, `closed`)
-7. prints latest metrics rows with agent and relative age
+1. defaults to `--quick` for a fast active-operations view (health summary, active sessions, current claims, latest run activity, high-signal alerts)
+2. supports `--full` for complete diagnostics (legacy output depth)
+3. in full mode, prints queue backend diagnostics for `br` (version, workspace presence, doctor result, sync status)
+4. in full mode, prints per-agent latest activity from `metrics.jsonl` (result, issue, age, duration, tokens, loop action)
+5. in full mode, prints tmux sessions and git worktrees
+6. in full mode, prints queue snapshots (`in_progress`, `closed`)
+7. in full mode, prints latest metrics rows with agent and relative age
 
 Tuning knobs:
 

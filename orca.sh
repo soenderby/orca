@@ -12,7 +12,7 @@ Usage:
 Commands:
   start [count] [--runs N|--continuous] [--drain|--watch] [--no-work-retries N] [--reasoning-level LEVEL]
   stop
-  status
+  status [--quick|--full]
   gc-run-branches [--apply] [--base REF]
   setup-worktrees [count]
   with-lock [--scope NAME] [--timeout SECONDS] -- <command> [args...]

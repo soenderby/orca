@@ -105,12 +105,13 @@ Watch/poll mode override:
 ### 3) Monitor
 
 ```bash
-./orca.sh status
+./orca.sh status            # quick mode (default)
+./orca.sh status --full     # detailed diagnostics
 find agent-logs/sessions -type f | sort | tail -n 20
 tail -n 10 agent-logs/metrics.jsonl
 ```
 
-`orca status` includes a `br` queue section (version, workspace health, sync status) plus agent-worktree hygiene alerts.
+`orca status` defaults to quick mode for frequent checks. Use `--full` when you need complete `br` diagnostics, worktree hygiene detail, and extended metrics sections.
 
 ### 4) Stop
 

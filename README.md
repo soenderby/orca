@@ -156,8 +156,8 @@ Agents must write a JSON object to `ORCA_RUN_SUMMARY_PATH` (also provided in pro
 | `result` | string | yes | `completed`, `blocked`, `no_work`, `failed` |
 | `issue_status` | string | yes | Issue status after this run, or empty for `no_work`. |
 | `merged` | boolean | yes | `true` only when merge/integration completed in this run. |
-| `discovery_ids` | array[string] | yes | Follow-up issue IDs created in this run. Use `[]` when none. |
-| `discovery_count` | integer | yes | Must equal `discovery_ids` length. |
+| `discovery_ids` | array[string] | no | Optional compatibility field for follow-up issue IDs created in this run. |
+| `discovery_count` | integer | no | Optional compatibility field; when present with `discovery_ids`, should match its length. |
 | `loop_action` | string | yes | `continue` or `stop` |
 | `loop_action_reason` | string | yes | Reason for selected `loop_action`; empty string allowed. |
 | `notes` | string | yes | Short run note/handoff summary. |
@@ -167,7 +167,7 @@ Agents must write a JSON object to `ORCA_RUN_SUMMARY_PATH` (also provided in pro
 Each iteration:
 
 1. creates run artifacts (`run.log`, `summary.json`, optional `summary.md`) under session/run directories
-2. renders `AGENT_PROMPT.md` placeholders (agent/worktree/summary/discovery/primary-repo/lock/queue-write/merge-helper paths)
+2. renders `AGENT_PROMPT.md` placeholders (agent/worktree/summary/primary-repo/lock/queue-write/merge-helper paths)
 3. executes agent command once
 4. parses summary JSON and validates required schema fields when present
 5. restores any leftover local `.beads/` working-tree changes to keep run branches clean
@@ -300,18 +300,9 @@ Each metrics row includes:
 2. `summary_schema_status` (`valid|invalid|not_checked`)
 3. `summary_schema_reason_codes` (array of deterministic validation codes when invalid)
 
-Per-agent discovery notes:
-
-`agent-logs/discoveries/<agent-name>.md`
-
 Archived legacy logs:
 
 `agent-logs/archive/<timestamp>/...`
-
-Discovery path is injected to agents as:
-
-- prompt placeholders: `__DISCOVERY_LOG_PATH__`, `__AGENT_DISCOVERY_LOG_PATH__`
-- env vars: `ORCA_DISCOVERY_LOG_PATH`, `ORCA_AGENT_DISCOVERY_LOG_PATH`
 
 Primary repo and helper paths are injected to agents as:
 

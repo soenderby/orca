@@ -6,7 +6,6 @@ Lock helper path: __WITH_LOCK_PATH__
 Queue-write helper path: __QUEUE_WRITE_MAIN_PATH__
 Merge helper path: __MERGE_MAIN_PATH__
 Run summary JSON path: __SUMMARY_JSON_PATH__
-Discovery log path: __DISCOVERY_LOG_PATH__
 
 Complete exactly one issue end-to-end in this run, or return `no_work`.
 
@@ -49,7 +48,7 @@ ISSUE_ID="<candidate-id>"
 4. If claim publication fails (race), pick another issue or return `no_work`.
 5. Re-import in worktree after successful claim publish:
    - `br sync --import-only`
-6. Perform all later queue mutations (comments/status/discovery issues/dependencies/close) through `ORCA_QUEUE_WRITE_MAIN_PATH` too.
+6. Perform all later queue mutations (comments/status/follow-up issues/dependencies/close) through `ORCA_QUEUE_WRITE_MAIN_PATH` too.
 
 ## Execution Workflow
 
@@ -63,26 +62,22 @@ ISSUE_ID="<candidate-id>"
 5. Update issue state and notes via `ORCA_QUEUE_WRITE_MAIN_PATH`:
    - use `br comments add <id> "..."` for meaningful progress/blocker notes
    - set state (`in_progress`, `blocked`, `closed`) intentionally
-6. Capture discoveries as follow-up issues (see protocol below), also via `ORCA_QUEUE_WRITE_MAIN_PATH`.
+6. Capture newly discovered work as follow-up issues via `ORCA_QUEUE_WRITE_MAIN_PATH`.
 7. Merge/push with `ORCA_MERGE_MAIN_PATH` (pattern below).
 8. Before finishing run, ensure `.beads/` is not left dirty in the run branch (`git status --short -- .beads/`).
 9. Write run summary JSON to `__SUMMARY_JSON_PATH__`.
 
-## Discovery Protocol
+## Follow-up Protocol
 
 When additional work is discovered:
 
 1. Create follow-up issues via `ORCA_QUEUE_WRITE_MAIN_PATH` (never by editing `.beads` directly).
-2. If discovery blocks current issue completion:
+2. If it blocks current issue completion:
    - create a blocking issue
    - add dependency (`current -> blocker`) via `br dep add`
    - keep current issue open (`in_progress` or `blocked`)
 3. If non-blocking, create a follow-up and keep current run scope unchanged.
-4. For tooling discoveries, also append a concise note to `__DISCOVERY_LOG_PATH__`.
-
-For every created follow-up issue:
-- include clear title, impact, and concrete next step
-- include its ID in run summary `discovery_ids`
+4. Include clear title, impact, and concrete next step in each follow-up.
 
 ## Merge Pattern
 
@@ -109,11 +104,13 @@ Write valid JSON to `__SUMMARY_JSON_PATH__` with all fields:
 - `result` (`completed|blocked|no_work|failed`)
 - `issue_status` (string)
 - `merged` (boolean)
-- `discovery_ids` (array of strings)
-- `discovery_count` (integer, must equal `discovery_ids.length`)
 - `loop_action` (`continue|stop`)
 - `loop_action_reason` (string)
 - `notes` (string)
+
+Optional compatibility fields:
+- `discovery_ids` (array of strings)
+- `discovery_count` (integer, when present should equal `discovery_ids.length`)
 
 Rules:
 
@@ -128,6 +125,6 @@ Rules:
 1. Issue claimed or explicit `no_work`.
 2. Code/tests/docs completed for claimed scope, or blocker documented.
 3. Queue mutations executed via `ORCA_QUEUE_WRITE_MAIN_PATH` (not via run-branch `.beads` edits).
-4. Discovery follow-up issues and discovery log entries recorded when applicable.
+4. Follow-up issues recorded when applicable.
 5. `.beads/` not left dirty in run branch.
 6. Summary JSON written and complete.

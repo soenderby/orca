@@ -23,8 +23,6 @@ cat > "${ORCA_RUN_SUMMARY_PATH}" <<'JSON'
   "result": "no_work",
   "issue_status": "",
   "merged": false,
-  "discovery_ids": [],
-  "discovery_count": 0,
   "loop_action": "continue",
   "loop_action_reason": "",
   "notes": "regression test no_work run"

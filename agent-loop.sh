@@ -892,15 +892,6 @@ while true; do
     log "stopping loop after failure to restore local .beads changes"
   fi
 
-  finalize_run_observability
-
-  runs_completed=$((runs_completed + 1))
-  if [[ "${MAX_RUNS}" -eq 0 ]]; then
-    log "completed run ${runs_completed}"
-  else
-    log "completed run ${runs_completed}/${MAX_RUNS}"
-  fi
-
   if [[ "${RUN_RESULT}" == "no_work" ]]; then
     consecutive_no_work_runs=$((consecutive_no_work_runs + 1))
     if [[ "${ORCA_NO_WORK_DRAIN_MODE}" == "drain" ]]; then
@@ -921,6 +912,17 @@ while true; do
       log "resetting consecutive no_work counter after result=${RUN_RESULT}"
     fi
     consecutive_no_work_runs=0
+  fi
+
+  # Drain-stop decisions must be applied before observability is finalized so
+  # summary/metrics capture the final loop action and reason for this run.
+  finalize_run_observability
+
+  runs_completed=$((runs_completed + 1))
+  if [[ "${MAX_RUNS}" -eq 0 ]]; then
+    log "completed run ${runs_completed}"
+  else
+    log "completed run ${runs_completed}/${MAX_RUNS}"
   fi
 
   if [[ "${RUN_SUMMARY_PARSE_STATUS}" == "parsed" && "${RUN_SUMMARY_LOOP_ACTION}" == "stop" ]]; then

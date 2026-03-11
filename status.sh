@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel)"
 SESSION_PREFIX="${SESSION_PREFIX:-orca-agent}"
 METRICS_FILE="${ROOT}/agent-logs/metrics.jsonl"
+SESSION_LOG_ROOT="${ROOT}/agent-logs/sessions"
 ORCA_STATUS_CACHE_DIR="${ORCA_STATUS_CACHE_DIR:-${ROOT}/agent-logs/cache}"
 ORCA_STATUS_METRICS_CACHE_MAX_FILES="${ORCA_STATUS_METRICS_CACHE_MAX_FILES:-5}"
 ORCA_STATUS_STALE_SECONDS="${ORCA_STATUS_STALE_SECONDS:-900}"
@@ -12,16 +13,22 @@ ORCA_STATUS_CLOSED_LIMIT="${ORCA_STATUS_CLOSED_LIMIT:-10}"
 ORCA_STATUS_RECENT_METRIC_LIMIT="${ORCA_STATUS_RECENT_METRIC_LIMIT:-10}"
 FIELD_SEP=$'\x1f'
 STATUS_MODE="quick"
+SESSION_FILTER_ID=""
+SESSION_FILTER_PREFIX=""
 
 usage() {
   cat <<USAGE
 Usage:
-  ./orca.sh status [--quick|--full]
-  ./status.sh [--quick|--full]
+  ./orca.sh status [--quick|--full] [--session-id ID] [--session-prefix PREFIX]
+  ./status.sh [--quick|--full] [--session-id ID] [--session-prefix PREFIX]
 
 Modes:
   --quick  Fast active-operations summary (default)
   --full   Full diagnostics (legacy status output)
+
+Session scope:
+  --session-id ID        Only include data for an exact session id
+  --session-prefix TEXT  Only include data where session id starts with TEXT
 USAGE
 }
 
@@ -32,6 +39,24 @@ while [[ $# -gt 0 ]]; do
       ;;
     --full)
       STATUS_MODE="full"
+      ;;
+    --session-id)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing value for --session-id" >&2
+        usage >&2
+        exit 1
+      fi
+      SESSION_FILTER_ID="$2"
+      shift
+      ;;
+    --session-prefix)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing value for --session-prefix" >&2
+        usage >&2
+        exit 1
+      fi
+      SESSION_FILTER_PREFIX="$2"
+      shift
       ;;
     -h|--help)
       usage
@@ -45,6 +70,160 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
+
+session_filter_active() {
+  [[ -n "${SESSION_FILTER_ID}" || -n "${SESSION_FILTER_PREFIX}" ]]
+}
+
+session_matches_filter() {
+  local session_id="${1:-}"
+
+  if [[ -n "${SESSION_FILTER_ID}" ]]; then
+    [[ "${session_id}" == "${SESSION_FILTER_ID}" ]] || return 1
+  fi
+
+  if [[ -n "${SESSION_FILTER_PREFIX}" ]]; then
+    [[ -n "${session_id}" ]] || return 1
+    [[ "${session_id}" == "${SESSION_FILTER_PREFIX}"* ]] || return 1
+  fi
+
+  return 0
+}
+
+session_filter_description() {
+  local parts=""
+
+  if [[ -n "${SESSION_FILTER_ID}" ]]; then
+    parts="id=${SESSION_FILTER_ID}"
+  fi
+  if [[ -n "${SESSION_FILTER_PREFIX}" ]]; then
+    if [[ -n "${parts}" ]]; then
+      parts+=", "
+    fi
+    parts+="prefix=${SESSION_FILTER_PREFIX}"
+  fi
+
+  if [[ -z "${parts}" ]]; then
+    echo "all sessions"
+  else
+    echo "${parts}"
+  fi
+}
+
+filter_metrics_json_stream() {
+  local input_file="$1"
+
+  if ! session_filter_active; then
+    cat "${input_file}"
+    return 0
+  fi
+
+  jq -c \
+    --arg sid "${SESSION_FILTER_ID}" \
+    --arg sp "${SESSION_FILTER_PREFIX}" \
+    '
+      select(
+        (($sid | length) == 0 or (.session_id // "") == $sid)
+        and
+        (($sp | length) == 0 or ((.session_id // "") | startswith($sp)))
+      )
+    ' "${input_file}" 2>/dev/null || true
+}
+
+resolve_session_dir_for_tmux_session() {
+  local tmux_session="$1"
+
+  if [[ ! -d "${SESSION_LOG_ROOT}" ]]; then
+    return 1
+  fi
+
+  find "${SESSION_LOG_ROOT}" -mindepth 1 -maxdepth 4 -type d \
+    \( -name "${tmux_session}" -o -name "${tmux_session}-*" \) \
+    2>/dev/null | sort | tail -n 1
+}
+
+extract_agent_name_from_session_log() {
+  local session_log="$1"
+
+  if [[ ! -f "${session_log}" ]]; then
+    return 1
+  fi
+
+  awk -F'[][]' '/^\[[^]]+\] \[[^]]+\] / {agent=$4} END {if (agent != "") print agent}' "${session_log}"
+}
+
+build_active_session_rows() {
+  local tmux_sessions_input="${1:-}"
+  local rows=""
+  local running_count=0
+  local total_count=0
+  local tmux_session=""
+  local session_dir=""
+  local session_id=""
+  local session_log=""
+  local agent_name=""
+  local latest_run_dir=""
+  local run_name=""
+  local run_log=""
+  local state=""
+  local updated_at=""
+  local run_age="unknown"
+  local row=""
+
+  while IFS= read -r tmux_session; do
+    [[ -z "${tmux_session}" ]] && continue
+
+    session_dir="$(resolve_session_dir_for_tmux_session "${tmux_session}" || true)"
+    session_id=""
+    if [[ -n "${session_dir}" ]]; then
+      session_id="$(basename "${session_dir}")"
+    fi
+
+    if ! session_matches_filter "${session_id}"; then
+      continue
+    fi
+
+    total_count=$((total_count + 1))
+    session_log="${session_dir}/session.log"
+    agent_name="$(extract_agent_name_from_session_log "${session_log}" 2>/dev/null || true)"
+    if [[ -z "${agent_name}" ]]; then
+      agent_name="${tmux_session#${SESSION_PREFIX}-}"
+      [[ -n "${agent_name}" ]] || agent_name="${tmux_session}"
+    fi
+
+    latest_run_dir=""
+    if [[ -d "${session_dir}/runs" ]]; then
+      latest_run_dir="$(find "${session_dir}/runs" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -n 1)"
+    fi
+
+    state="idle"
+    run_name="none"
+    run_age="unknown"
+    if [[ -n "${latest_run_dir}" ]]; then
+      run_name="$(basename "${latest_run_dir}")"
+      run_log="${latest_run_dir}/run.log"
+      if [[ -f "${run_log}" ]]; then
+        updated_at="$(stat -c '%y' "${run_log}" 2>/dev/null || true)"
+        if [[ -n "${updated_at}" ]]; then
+          run_age="$(format_age_from_timestamp "${updated_at}")"
+        fi
+        if grep -q "running agent command" "${run_log}" 2>/dev/null && ! grep -q "agent command exited with" "${run_log}" 2>/dev/null; then
+          state="running"
+          running_count=$((running_count + 1))
+        fi
+      fi
+    fi
+
+    row="${tmux_session}${FIELD_SEP}${session_id}${FIELD_SEP}${agent_name}${FIELD_SEP}${state}${FIELD_SEP}${run_age}${FIELD_SEP}${run_name}"
+    if [[ -n "${rows}" ]]; then
+      rows+=$'\n'
+    fi
+    rows+="${row}"
+  done <<< "${tmux_sessions_input}"
+
+  printf '%s\n' "${running_count}${FIELD_SEP}${total_count}"
+  printf '%s\n' "${rows}"
+}
 
 count_non_empty_lines() {
   local text="${1:-}"
@@ -155,7 +334,7 @@ metrics_fingerprint() {
     return 1
   fi
 
-  printf '%s\n' "${stat_output}"
+  printf '%s\n' "${stat_output}:v2"
 }
 
 load_full_metrics_summary_from_cache() {
@@ -189,6 +368,7 @@ load_full_metrics_summary_from_cache() {
       def row_to_text:
         [
           (.agent_name // "unknown-agent"),
+          (.session_id // "unknown-session"),
           (.timestamp // "unknown-time"),
           (.result // "unknown"),
           (.issue_id // "none"),
@@ -222,8 +402,8 @@ load_full_metrics_summary_from_cache() {
           agent_activity_rows: (
             sort_by(.timestamp // "")
             | reverse
-            | unique_by(.agent_name)
-            | sort_by(.agent_name)
+            | unique_by([.agent_name, .session_id])
+            | sort_by(.agent_name, (.session_id // ""))
             | map(row_to_text)
           )
         }
@@ -256,10 +436,79 @@ load_full_metrics_summary_from_cache() {
   return 0
 }
 
+load_filtered_metrics_summary() {
+  local -n out_summary_line_ref="$1"
+  local -n out_agent_rows_ref="$2"
+  local filtered_rows=""
+
+  out_summary_line_ref=""
+  out_agent_rows_ref=""
+
+  if [[ ! -f "${METRICS_FILE}" || ! -s "${METRICS_FILE}" || ! -r "${METRICS_FILE}" ]]; then
+    return 1
+  fi
+
+  filtered_rows="$(filter_metrics_json_stream "${METRICS_FILE}")"
+  if [[ -z "${filtered_rows}" ]]; then
+    return 1
+  fi
+
+  out_summary_line_ref="$(
+    printf '%s\n' "${filtered_rows}" | jq -s -r '
+      if length == 0 then
+        ""
+      else
+        [
+          (length | tostring),
+          (map(select(.result == "completed")) | length | tostring),
+          (map(select(.result == "blocked")) | length | tostring),
+          (map(select(.result == "failed")) | length | tostring),
+          (map(select(.result == "no_work")) | length | tostring),
+          (.[-1].timestamp // ""),
+          (.[-1].agent_name // ""),
+          (.[-1].result // ""),
+          (.[-1].issue_id // ""),
+          ((.[-1].durations_seconds.iteration_total // 0) | tostring),
+          (if .[-1].tokens_used == null then "n/a" else (.[-1].tokens_used | tostring) end)
+        ] | join("\u001f")
+      end
+    ' 2>/dev/null || true
+  )"
+
+  out_agent_rows_ref="$(
+    printf '%s\n' "${filtered_rows}" | jq -s -r '
+      def row_to_text:
+        [
+          (.agent_name // "unknown-agent"),
+          (.session_id // "unknown-session"),
+          (.timestamp // "unknown-time"),
+          (.result // "unknown"),
+          (.issue_id // "none"),
+          ((.durations_seconds.iteration_total // 0) | tostring),
+          (if .tokens_used == null then "n/a" else (.tokens_used | tostring) end),
+          ((.summary.loop_action // .loop_action // "n/a") | tostring),
+          ((.summary.loop_action_reason // .loop_action_reason // "") | tostring)
+        ] | join("\u001f");
+      sort_by(.timestamp // "")
+      | reverse
+      | unique_by([.agent_name, .session_id])
+      | sort_by(.agent_name, (.session_id // ""))
+      | map(row_to_text)
+      | .[]?
+    ' 2>/dev/null || true
+  )"
+
+  [[ -n "${out_summary_line_ref}" ]]
+}
+
 run_quick_status() {
   local tmux_available=0
   local tmux_sessions=""
   local tmux_count=0
+  local active_session_rows=""
+  local active_session_counts=""
+  local active_running_count=0
+  local scoped_session_count=0
   local worktree_list=""
   local agent_worktree_paths=""
   local agent_worktree_count=0
@@ -277,6 +526,8 @@ run_quick_status() {
   local claimed_json="[]"
   local claimed_count=0
   local claimed_rows=""
+  local metrics_rows=""
+  local last_line=""
   local last_age_seconds
 
   if command -v tmux >/dev/null 2>&1; then
@@ -284,6 +535,12 @@ run_quick_status() {
     tmux_sessions="$(tmux ls -F '#S' 2>/dev/null | grep "^${SESSION_PREFIX}-" || true)"
   fi
   tmux_count="$(count_non_empty_lines "${tmux_sessions}")"
+  active_session_counts="$(build_active_session_rows "${tmux_sessions}")"
+  active_session_rows="$(printf '%s\n' "${active_session_counts}" | sed -n '2,$p')"
+  active_session_counts="$(printf '%s\n' "${active_session_counts}" | sed -n '1p')"
+  if [[ -n "${active_session_counts}" ]]; then
+    IFS="${FIELD_SEP}" read -r active_running_count scoped_session_count <<< "${active_session_counts}"
+  fi
 
   worktree_list="$(git worktree list 2>/dev/null || true)"
   agent_worktree_paths="$(
@@ -310,9 +567,9 @@ run_quick_status() {
   fi
 
   if [[ -f "${METRICS_FILE}" && -s "${METRICS_FILE}" && -r "${METRICS_FILE}" ]] && command -v jq >/dev/null 2>&1; then
-    local last_line
     local summary_line
-    last_line="$(tail -n 1 "${METRICS_FILE}" 2>/dev/null || true)"
+    metrics_rows="$(filter_metrics_json_stream "${METRICS_FILE}")"
+    last_line="$(printf '%s\n' "${metrics_rows}" | tail -n 1)"
     if [[ -n "${last_line}" ]]; then
       summary_line="$(
         printf '%s\n' "${last_line}" | jq -r '
@@ -357,8 +614,8 @@ run_quick_status() {
       if (( last_age_seconds < 0 )); then
         last_age_seconds=0
       fi
-      if (( tmux_count > 0 && last_age_seconds > ORCA_STATUS_STALE_SECONDS )); then
-        add_alert "Last metrics row is stale (${last_age_seconds}s old; threshold ${ORCA_STATUS_STALE_SECONDS}s)."
+      if (( scoped_session_count > 0 && last_age_seconds > ORCA_STATUS_STALE_SECONDS && active_running_count == 0 )); then
+        add_alert "Last metrics row is stale (${last_age_seconds}s old; threshold ${ORCA_STATUS_STALE_SECONDS}s) and no active run is detected."
       fi
     fi
     if [[ "${last_result}" != "completed" && "${last_result}" != "no_work" ]]; then
@@ -370,11 +627,13 @@ run_quick_status() {
   echo "time: $(date -Iseconds)"
   echo "repo: ${ROOT}"
   echo "mode: quick (default; use --full for full diagnostics)"
+  echo "session scope: $(session_filter_description)"
   if [[ "${tmux_available}" -eq 1 ]]; then
     echo "sessions (${SESSION_PREFIX}-*): ${tmux_count}"
   else
     echo "sessions (${SESSION_PREFIX}-*): tmux not installed"
   fi
+  echo "active runs (scoped): ${active_running_count}/${scoped_session_count}"
   echo "agent worktrees: ${agent_worktree_count}"
   echo "primary repo dirty paths: ${main_dirty_count}"
   echo "claimed issues: ${claimed_count}"
@@ -399,7 +658,18 @@ run_quick_status() {
   echo "workspace: $([[ "${br_workspace_present}" -eq 1 ]] && echo present || echo missing)"
 
   echo
-  echo "== active sessions =="
+  echo "== active sessions (scoped) =="
+  if [[ -n "${active_session_rows}" ]]; then
+    while IFS="${FIELD_SEP}" read -r tmux_session_name session_id agent_name state run_age run_name; do
+      [[ -z "${tmux_session_name}" ]] && continue
+      echo "- ${tmux_session_name}: session=${session_id:-unknown} agent=${agent_name:-unknown-agent} state=${state} latest_run=${run_name} updated=${run_age}"
+    done <<< "${active_session_rows}"
+  else
+    echo "(none)"
+  fi
+
+  echo
+  echo "== tmux sessions (raw) =="
   if [[ "${tmux_available}" -eq 1 ]]; then
     if [[ -n "${tmux_sessions}" ]]; then
       printf '%s\n' "${tmux_sessions}"
@@ -427,12 +697,22 @@ fi
 tmux_available=0
 tmux_sessions=""
 tmux_sessions_verbose=""
+active_session_rows=""
+active_session_counts=""
+active_running_count=0
+scoped_session_count=0
 if command -v tmux >/dev/null 2>&1; then
   tmux_available=1
   tmux_sessions="$(tmux ls -F '#S' 2>/dev/null | grep "^${SESSION_PREFIX}-" || true)"
   tmux_sessions_verbose="$(tmux ls 2>/dev/null | grep "^${SESSION_PREFIX}-" || true)"
 fi
 tmux_count="$(count_non_empty_lines "${tmux_sessions}")"
+active_session_counts="$(build_active_session_rows "${tmux_sessions}")"
+active_session_rows="$(printf '%s\n' "${active_session_counts}" | sed -n '2,$p')"
+active_session_counts="$(printf '%s\n' "${active_session_counts}" | sed -n '1p')"
+if [[ -n "${active_session_counts}" ]]; then
+  IFS="${FIELD_SEP}" read -r active_running_count scoped_session_count <<< "${active_session_counts}"
+fi
 
 worktree_list="$(git worktree list 2>/dev/null || true)"
 agent_worktree_paths="$(
@@ -519,25 +799,32 @@ recent_metrics_rows=""
 
 if [[ -f "${METRICS_FILE}" && -s "${METRICS_FILE}" && -r "${METRICS_FILE}" ]] && command -v jq >/dev/null 2>&1; then
   summary_line=""
-  if load_full_metrics_summary_from_cache summary_line agent_activity_rows; then
+  if session_filter_active; then
+    if load_filtered_metrics_summary summary_line agent_activity_rows; then
+      IFS="${FIELD_SEP}" read -r total_runs completed_runs blocked_runs failed_runs no_work_runs last_timestamp last_agent last_result last_issue last_duration last_tokens <<< "${summary_line}"
+      metrics_summary_available=1
+    fi
+  elif load_full_metrics_summary_from_cache summary_line agent_activity_rows; then
     IFS="${FIELD_SEP}" read -r total_runs completed_runs blocked_runs failed_runs no_work_runs last_timestamp last_agent last_result last_issue last_duration last_tokens <<< "${summary_line}"
     metrics_summary_available=1
   fi
 
   recent_metrics_rows="$(
-    tail -n "${ORCA_STATUS_RECENT_METRIC_LIMIT}" "${METRICS_FILE}" 2>/dev/null \
+    filter_metrics_json_stream "${METRICS_FILE}" \
+      | tail -n "${ORCA_STATUS_RECENT_METRIC_LIMIT}" \
       | jq -r '
-          [
-            (.timestamp // "unknown-time"),
-            (.agent_name // "unknown-agent"),
-            (.issue_id // "none"),
-            (.result // "unknown"),
-            (.reason // "unknown"),
-            ((.durations_seconds.iteration_total // 0) | tostring),
-            (if .tokens_used == null then "n/a" else (.tokens_used | tostring) end)
-          ]
-          | join("\u001f")
-        ' 2>/dev/null || true
+        [
+          (.timestamp // "unknown-time"),
+          (.session_id // "unknown-session"),
+          (.agent_name // "unknown-agent"),
+          (.issue_id // "none"),
+          (.result // "unknown"),
+          (.reason // "unknown"),
+          ((.durations_seconds.iteration_total // 0) | tostring),
+          (if .tokens_used == null then "n/a" else (.tokens_used | tostring) end)
+        ]
+        | join("\u001f")
+      ' 2>/dev/null || true
   )"
 fi
 
@@ -572,8 +859,8 @@ if [[ "${metrics_summary_available}" -eq 1 ]]; then
     if (( last_age_seconds < 0 )); then
       last_age_seconds=0
     fi
-    if (( tmux_count > 0 && last_age_seconds > ORCA_STATUS_STALE_SECONDS )); then
-      add_alert "Last metrics row is stale (${last_age_seconds}s old; threshold ${ORCA_STATUS_STALE_SECONDS}s)."
+    if (( scoped_session_count > 0 && last_age_seconds > ORCA_STATUS_STALE_SECONDS && active_running_count == 0 )); then
+      add_alert "Last metrics row is stale (${last_age_seconds}s old; threshold ${ORCA_STATUS_STALE_SECONDS}s) and no active run is detected."
     fi
   fi
 
@@ -585,11 +872,13 @@ fi
 echo "== orca health =="
 echo "time: $(date -Iseconds)"
 echo "repo: ${ROOT}"
+echo "session scope: $(session_filter_description)"
 if [[ "${tmux_available}" -eq 1 ]]; then
   echo "sessions (${SESSION_PREFIX}-*): ${tmux_count}"
 else
   echo "sessions (${SESSION_PREFIX}-*): tmux not installed"
 fi
+echo "active runs (scoped): ${active_running_count}/${scoped_session_count}"
 echo "agent worktrees: ${agent_worktree_count}"
 echo "dirty agent worktrees: ${dirty_agent_worktree_count}"
 echo "primary repo dirty paths: ${main_dirty_count}"
@@ -628,11 +917,22 @@ else
 fi
 
 echo
+echo "== active sessions (scoped) =="
+if [[ -n "${active_session_rows}" ]]; then
+  while IFS="${FIELD_SEP}" read -r tmux_session_name session_id agent_name state run_age run_name; do
+    [[ -z "${tmux_session_name}" ]] && continue
+    echo "- ${tmux_session_name}: session=${session_id:-unknown} agent=${agent_name:-unknown-agent} state=${state} latest_run=${run_name} updated=${run_age}"
+  done <<< "${active_session_rows}"
+else
+  echo "(none)"
+fi
+
+echo
 echo "== agent activity =="
 if [[ -n "${agent_activity_rows}" ]]; then
-  while IFS="${FIELD_SEP}" read -r agent_name timestamp result issue_id duration_s tokens loop_action loop_action_reason; do
+  while IFS="${FIELD_SEP}" read -r agent_name session_id timestamp result issue_id duration_s tokens loop_action loop_action_reason; do
     [[ -z "${agent_name}" ]] && continue
-    echo "- ${agent_name}: result=${result} issue=${issue_id} age=$(format_age_from_timestamp "${timestamp}") duration=$(format_seconds_short "${duration_s}") tokens=${tokens} loop=${loop_action}${loop_action_reason:+ note=${loop_action_reason}}"
+    echo "- ${agent_name}: session=${session_id:-unknown-session} result=${result} issue=${issue_id} age=$(format_age_from_timestamp "${timestamp}") duration=$(format_seconds_short "${duration_s}") tokens=${tokens} loop=${loop_action}${loop_action_reason:+ note=${loop_action_reason}}"
   done <<< "${agent_activity_rows}"
 else
   echo "(no parsed metrics rows)"
@@ -650,7 +950,7 @@ else
 fi
 
 echo
-echo "== tmux sessions =="
+echo "== tmux sessions (raw) =="
 if [[ "${tmux_available}" -eq 1 ]]; then
   if [[ -n "${tmux_sessions_verbose}" ]]; then
     printf '%s\n' "${tmux_sessions_verbose}"
@@ -701,12 +1001,12 @@ echo
 echo "== latest metrics =="
 if [[ -f "${METRICS_FILE}" ]]; then
   if [[ -n "${recent_metrics_rows}" ]]; then
-    while IFS="${FIELD_SEP}" read -r timestamp agent_name issue_id result reason duration_s tokens; do
+    while IFS="${FIELD_SEP}" read -r timestamp session_id agent_name issue_id result reason duration_s tokens; do
       [[ -z "${timestamp}" ]] && continue
-      echo "${timestamp} ($(format_age_from_timestamp "${timestamp}")) agent=${agent_name} issue=${issue_id} result=${result} reason=${reason} total=$(format_seconds_short "${duration_s}") tokens=${tokens}"
+      echo "${timestamp} ($(format_age_from_timestamp "${timestamp}")) session=${session_id} agent=${agent_name} issue=${issue_id} result=${result} reason=${reason} total=$(format_seconds_short "${duration_s}") tokens=${tokens}"
     done <<< "${recent_metrics_rows}"
   else
-    tail -n "${ORCA_STATUS_RECENT_METRIC_LIMIT}" "${METRICS_FILE}" || true
+    filter_metrics_json_stream "${METRICS_FILE}" | tail -n "${ORCA_STATUS_RECENT_METRIC_LIMIT}" || true
   fi
 else
   echo "(no metrics yet)"

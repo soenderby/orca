@@ -94,6 +94,8 @@ Bounded mode:
 ./orca.sh start 2 --runs 5
 ```
 
+`--runs N` is an upper bound (maximum iterations per agent loop), not a requirement to consume all runs when earlier stop conditions apply.
+
 Watch/poll mode override:
 
 ```bash
@@ -126,7 +128,7 @@ Orca loop (`agent-loop.sh`) does:
 2. provide prompt + run artifact paths
 3. parse summary JSON and append metrics
 4. in default `drain` mode, stop on sustained `no_work` after `ORCA_NO_WORK_RETRY_LIMIT + 1` consecutive `no_work` results
-5. continue until run limit, no-work drain stop, or agent-requested stop
+5. continue until an early stop condition is met (`MAX_RUNS` upper bound, no-work drain stop, or agent-requested stop)
 
 Agent does:
 

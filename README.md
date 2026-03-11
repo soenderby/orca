@@ -173,7 +173,7 @@ Each iteration:
 5. restores any leftover local `.beads/` working-tree changes to keep run branches clean
 6. appends metrics row to `agent-logs/metrics.jsonl`
 7. in default `drain` mode, stops on sustained `no_work` (after `ORCA_NO_WORK_RETRY_LIMIT + 1` consecutive `no_work` results); transient no-work windows can retry up to the configured limit
-8. `watch` mode disables no-work auto-stop and keeps polling until `MAX_RUNS` or `loop_action=stop`
+8. `watch` mode disables no-work auto-stop and keeps polling until an earlier stop condition (`MAX_RUNS`, `loop_action=stop`, or failure)
 
 ## Validation and Safety Checks
 
@@ -256,7 +256,7 @@ Orca handles transport/observability errors. Agents handle workflow policy.
 
 1. startup hard-stop failures: invalid config/env/worktree/prompt path, unhealthy `br` workspace, or dirty non-running agent worktree
 2. run-level failures: non-zero agent exit, missing/invalid summary JSON, summary schema validation failure, metrics append failure
-3. controlled stop: run limit reached or agent summary requests stop
+3. controlled stop: an early stop condition is reached (`MAX_RUNS` ceiling, `no_work` drain stop, or agent summary requests stop)
 
 ## Logs and Traceability
 
@@ -312,7 +312,7 @@ Primary repo and helper paths are injected to agents as:
 
 ## Runtime Knobs
 
-- `MAX_RUNS`: issue runs per loop (`0` means unbounded unless stopped by drain policy or `loop_action=stop`)
+- `MAX_RUNS`: maximum issue runs per loop (upper bound; `0` means unbounded unless stopped by drain policy or `loop_action=stop`)
 - `AGENT_MODEL`: default model for default command
 - `AGENT_REASONING_LEVEL`: optional reasoning effort for default command
 - `RUN_SLEEP_SECONDS`: sleep between iterations (default `2`)

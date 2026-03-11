@@ -51,9 +51,15 @@ bash "${ROOT}/agent-loop.sh" >/dev/null 2>&1
 
 RUN_DIR="$(find "${ROOT}/agent-logs/sessions" -type d -path "*/${SESSION_ID}/runs/*" | sort | tail -n 1)"
 SUMMARY_MD="${RUN_DIR}/summary.md"
+RUN_COUNT="$(find "${ROOT}/agent-logs/sessions" -type d -path "*/${SESSION_ID}/runs/*" | wc -l | tr -d '[:space:]')"
 
 if [[ ! -f "${SUMMARY_MD}" ]]; then
   echo "missing summary markdown at ${SUMMARY_MD}" >&2
+  exit 1
+fi
+
+if [[ "${RUN_COUNT}" -ne 1 ]]; then
+  echo "expected early drain stop before MAX_RUNS=5; observed ${RUN_COUNT} runs" >&2
   exit 1
 fi
 

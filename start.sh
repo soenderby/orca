@@ -8,7 +8,7 @@ Usage:
 
 Options:
   count         Number of worker sessions/worktrees to launch (default: 2)
-  --runs N      Stop each agent loop after N completed issue runs
+  --runs N      Maximum completed issue runs per agent loop (upper bound; may stop earlier)
   --continuous  Keep each loop unbounded (agent can request stop) (default)
   --drain       Stop loop on sustained queue exhaustion (`no_work`) (default)
   --watch       Keep loop running on `no_work` (poll/watch mode)
@@ -336,7 +336,7 @@ ensure_br_workspace
 if [[ "${MAX_RUNS}" -eq 0 ]]; then
   mode_message="continuous (agent stop + no_work mode=${ORCA_NO_WORK_DRAIN_MODE}, retries=${ORCA_NO_WORK_RETRY_LIMIT})"
 else
-  mode_message="${MAX_RUNS} runs per agent (no_work mode=${ORCA_NO_WORK_DRAIN_MODE}, retries=${ORCA_NO_WORK_RETRY_LIMIT})"
+  mode_message="max ${MAX_RUNS} runs per agent (upper bound; no_work mode=${ORCA_NO_WORK_DRAIN_MODE}, retries=${ORCA_NO_WORK_RETRY_LIMIT})"
 fi
 
 echo "[start] run mode: ${mode_message}"

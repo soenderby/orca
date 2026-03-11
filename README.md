@@ -164,12 +164,14 @@ Agents must write a JSON object to `ORCA_RUN_SUMMARY_PATH` (also provided in pro
 | `loop_action_reason` | string | yes | Reason for selected `loop_action`; empty string allowed. |
 | `notes` | string | yes | Short run note/handoff summary. |
 
+When `ORCA_ASSIGNED_ISSUE_ID` is set, `issue_id` must exactly match that assigned ID.
+
 ## Core Loop Logic (`agent-loop.sh`)
 
 Each iteration:
 
 1. creates run artifacts (`run.log`, `summary.json`, optional `summary.md`) under session/run directories
-2. renders `AGENT_PROMPT.md` placeholders (agent/worktree/summary/primary-repo/lock/queue-write/merge-helper paths)
+2. renders `AGENT_PROMPT.md` placeholders (agent/worktree/summary/primary-repo/lock/queue-write/merge-helper paths, assignment mode, assigned issue)
 3. executes agent command once
 4. parses summary JSON and validates required schema fields when present
 5. restores any leftover local `.beads/` working-tree changes to keep run branches clean
@@ -195,11 +197,12 @@ Startup checks:
 10. `ORCA_NO_WORK_RETRY_LIMIT` non-negative integer
 11. `ORCA_FORCE_COUNT` is `0|1`
 12. `.beads/` workspace exists and `br doctor` succeeds
-13. each non-running agent worktree is clean (`git status --porcelain` empty)
-14. `AGENT_REASONING_LEVEL` (if set) matches `[A-Za-z0-9._-]+`
-15. `PROMPT_TEMPLATE` exists
-16. `ORCA_PRIMARY_REPO` points to a valid git worktree
-17. `ORCA_WITH_LOCK_PATH`, `ORCA_QUEUE_WRITE_MAIN_PATH`, and `ORCA_MERGE_MAIN_PATH` are executable
+13. `ORCA_ASSIGNMENT_MODE` is `assigned|self-select`
+14. each non-running agent worktree is clean (`git status --porcelain` empty)
+15. `AGENT_REASONING_LEVEL` (if set) matches `[A-Za-z0-9._-]+`
+16. `PROMPT_TEMPLATE` exists
+17. `ORCA_PRIMARY_REPO` points to a valid git worktree
+18. `ORCA_WITH_LOCK_PATH`, `ORCA_QUEUE_WRITE_MAIN_PATH`, and `ORCA_MERGE_MAIN_PATH` are executable
 
 Behavior:
 
@@ -209,10 +212,12 @@ Behavior:
 4. validates local `br` queue workspace health before launch
 5. invokes `setup-worktrees.sh` before launching sessions
 6. injects runtime knobs into each session
-7. defaults to launch capping: new launches are limited by current ready queue depth (`br ready --json`)
-8. `ORCA_FORCE_COUNT=1` bypasses launch capping and launches all requested non-running sessions
-9. logs launch planning and summary counts (`requested`, `running`, `ready`, `launchable/launched`, `force_count`)
-10. refuses to launch sessions when a non-running agent worktree is dirty, with per-path status output
+7. default assignment mode is `assigned`: each launched session receives one ready issue ID via `ORCA_ASSIGNED_ISSUE_ID`
+8. assigned mode launches are capped by current ready queue depth (`br ready --json`)
+9. explicit override `ORCA_ASSIGNMENT_MODE=self-select` restores unassigned self-selection behavior for recovery/debugging
+10. in `self-select`, `ORCA_FORCE_COUNT=1` bypasses launch capping and launches all requested non-running sessions
+11. logs launch planning and summary counts (`requested`, `running`, `ready`, `launchable/launched`, `force_count`, `assignment_mode`)
+12. refuses to launch sessions when a non-running agent worktree is dirty, with per-path status output
 
 ### `agent-loop.sh`
 
@@ -226,12 +231,14 @@ Input/env validation:
 6. `ORCA_LOCK_TIMEOUT_SECONDS` positive integer
 7. `ORCA_NO_WORK_DRAIN_MODE` is `drain|watch`
 8. `ORCA_NO_WORK_RETRY_LIMIT` non-negative integer
-9. `AGENT_REASONING_LEVEL` format validation when set
-10. `PROMPT_TEMPLATE` exists
-11. `ORCA_PRIMARY_REPO` points to a valid git worktree
-12. `ORCA_WITH_LOCK_PATH` points to an executable helper
-13. `ORCA_QUEUE_WRITE_MAIN_PATH` points to an executable helper
-14. `ORCA_MERGE_MAIN_PATH` points to an executable helper
+9. `ORCA_ASSIGNMENT_MODE` is `assigned|self-select`
+10. `ORCA_ASSIGNED_ISSUE_ID` format validation when set; required when `ORCA_ASSIGNMENT_MODE=assigned`
+11. `AGENT_REASONING_LEVEL` format validation when set
+12. `PROMPT_TEMPLATE` exists
+13. `ORCA_PRIMARY_REPO` points to a valid git worktree
+14. `ORCA_WITH_LOCK_PATH` points to an executable helper
+15. `ORCA_QUEUE_WRITE_MAIN_PATH` points to an executable helper
+16. `ORCA_MERGE_MAIN_PATH` points to an executable helper
 
 Signal handling:
 
@@ -308,6 +315,8 @@ Each metrics row includes:
 4. `mode_id` (nullable mode identifier for experiment attribution)
 5. `approach_source` (nullable approach file path/identifier when configured)
 6. `approach_sha256` (nullable SHA256 digest of approach content when readable)
+7. `assigned_issue_id` (nullable assigned issue ID for the run)
+8. `summary.assignment_match` (nullable boolean showing whether `summary.issue_id` matched assignment)
 
 Archived legacy logs:
 
@@ -317,6 +326,7 @@ Primary repo and helper paths are injected to agents as:
 
 - prompt placeholders: `__PRIMARY_REPO__`, `__ORCA_PRIMARY_REPO__`, `__WITH_LOCK_PATH__`, `__ORCA_WITH_LOCK_PATH__`, `__QUEUE_WRITE_MAIN_PATH__`, `__ORCA_QUEUE_WRITE_MAIN_PATH__`, `__MERGE_MAIN_PATH__`, `__ORCA_MERGE_MAIN_PATH__`
 - env vars: `ORCA_PRIMARY_REPO`, `ORCA_WITH_LOCK_PATH`, `ORCA_QUEUE_WRITE_MAIN_PATH`, `ORCA_MERGE_MAIN_PATH`
+- assignment env vars: `ORCA_ASSIGNMENT_MODE`, `ORCA_ASSIGNED_ISSUE_ID`
 
 `start.sh` sets these values at launch time; if `agent-loop.sh` is run directly, it applies the same defaults (`<repo-root>`, `<repo-root>/with-lock.sh`, `<repo-root>/queue-write-main.sh`, `<repo-root>/merge-main.sh`) and the same validation rules.
 
@@ -338,6 +348,8 @@ Primary repo and helper paths are injected to agents as:
 - `ORCA_MODE_ID`: optional mode identifier for observability attribution (for example `execute` or `explore`; empty by default)
 - `ORCA_WORK_APPROACH_FILE`: optional path/identifier for approach guidance attribution; when readable, `agent-loop.sh` records content SHA256 in metrics/session logs
 - `ORCA_FORCE_COUNT`: when `0` (default), cap new launches to current ready queue depth; set to `1` to bypass this cap and force full requested launch count for non-running sessions
+- `ORCA_ASSIGNMENT_MODE`: assignment strategy, `assigned` (default) or explicit override `self-select` for recovery/debugging
+- `ORCA_ASSIGNED_ISSUE_ID`: assigned issue ID for the current run; required in `assigned` mode and empty in `self-select`
 - `ORCA_PRIMARY_REPO`: primary repository path used for lock-guarded claim publication and merge/push operations; defaults to repo root in both `start.sh` and `agent-loop.sh`, and must be a valid git worktree
 - `ORCA_WITH_LOCK_PATH`: absolute path to lock helper passed to agents; defaults to `<repo-root>/with-lock.sh` in both `start.sh` and `agent-loop.sh`, and must be executable
 - `ORCA_QUEUE_WRITE_MAIN_PATH`: absolute path to queue mutation helper passed to agents (default `<repo-root>/queue-write-main.sh`)

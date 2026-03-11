@@ -5,8 +5,9 @@ ROOT="$(git rev-parse --show-toplevel)"
 TMP_DIR="$(mktemp -d)"
 WORKTREE_DIR="${TMP_DIR}/worktree"
 FAKE_AGENT="${TMP_DIR}/fake-agent.sh"
-SESSION_ID="drain-stop-regression-$(date -u +%Y%m%dT%H%M%SZ)-$$"
-EXPECTED_REASON="queue-drained-after-1-consecutive-no_work-runs"
+SESSION_ID="assigned-issue-regression-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+ASSIGNED_ISSUE_ID="orca-assigned"
+ACTUAL_ISSUE_ID="orca-other"
 
 cleanup() {
   git -C "${ROOT}" worktree remove --force "${WORKTREE_DIR}" >/dev/null 2>&1 || true
@@ -14,18 +15,18 @@ cleanup() {
 }
 trap cleanup EXIT
 
-cat > "${FAKE_AGENT}" <<'EOF'
+cat > "${FAKE_AGENT}" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-cat > "${ORCA_RUN_SUMMARY_PATH}" <<'JSON'
+cat > "\${ORCA_RUN_SUMMARY_PATH}" <<'JSON'
 {
-  "issue_id": "",
-  "result": "no_work",
-  "issue_status": "",
-  "merged": false,
+  "issue_id": "${ACTUAL_ISSUE_ID}",
+  "result": "completed",
+  "issue_status": "closed",
+  "merged": true,
   "loop_action": "continue",
   "loop_action_reason": "",
-  "notes": "regression test no_work run"
+  "notes": "assigned issue mismatch regression"
 }
 JSON
 EOF
@@ -37,9 +38,10 @@ WORKTREE="${WORKTREE_DIR}" \
 AGENT_NAME="regression-agent" \
 AGENT_SESSION_ID="${SESSION_ID}" \
 AGENT_COMMAND="${FAKE_AGENT}" \
-MAX_RUNS=5 \
+MAX_RUNS=1 \
 RUN_SLEEP_SECONDS=0 \
-ORCA_ASSIGNMENT_MODE="self-select" \
+ORCA_ASSIGNMENT_MODE="assigned" \
+ORCA_ASSIGNED_ISSUE_ID="${ASSIGNED_ISSUE_ID}" \
 ORCA_NO_WORK_DRAIN_MODE="drain" \
 ORCA_NO_WORK_RETRY_LIMIT=0 \
 ORCA_PRIMARY_REPO="${ROOT}" \
@@ -50,36 +52,30 @@ bash "${ROOT}/agent-loop.sh" >/dev/null 2>&1
 
 RUN_DIR="$(find "${ROOT}/agent-logs/sessions" -type d -path "*/${SESSION_ID}/runs/*" | sort | tail -n 1)"
 SUMMARY_MD="${RUN_DIR}/summary.md"
-SESSION_LOG="$(find "${ROOT}/agent-logs/sessions" -type f -path "*/${SESSION_ID}/session.log" | sort | tail -n 1)"
-RUN_COUNT="$(find "${ROOT}/agent-logs/sessions" -type d -path "*/${SESSION_ID}/runs/*" | wc -l | tr -d '[:space:]')"
 
 if [[ ! -f "${SUMMARY_MD}" ]]; then
   echo "missing summary markdown at ${SUMMARY_MD}" >&2
   exit 1
 fi
 
-if [[ "${RUN_COUNT}" -ne 1 ]]; then
-  echo "expected early drain stop before MAX_RUNS=5; observed ${RUN_COUNT} runs" >&2
-  exit 1
-fi
-
-grep -F -- "- Loop Action: stop" "${SUMMARY_MD}" >/dev/null
-grep -F -- "- Loop Action Reason: ${EXPECTED_REASON}" "${SUMMARY_MD}" >/dev/null
+grep -F -- "- Result: failed" "${SUMMARY_MD}" >/dev/null
+grep -F -- "- Summary Schema Status: invalid" "${SUMMARY_MD}" >/dev/null
+grep -F -- "mismatch:assigned_issue_id" "${SUMMARY_MD}" >/dev/null
+grep -F -- "- Assigned Issue: ${ASSIGNED_ISSUE_ID}" "${SUMMARY_MD}" >/dev/null
+grep -F -- "- Issue: ${ACTUAL_ISSUE_ID}" "${SUMMARY_MD}" >/dev/null
+grep -F -- "- Assigned Issue Match: false" "${SUMMARY_MD}" >/dev/null
 
 jq -e \
   --arg session "${SESSION_ID}" \
-  --arg reason "${EXPECTED_REASON}" \
+  --arg assigned "${ASSIGNED_ISSUE_ID}" \
+  --arg actual "${ACTUAL_ISSUE_ID}" \
   'select(.session_id == $session and .run_number == 1)
-   | .summary.loop_action == "stop"
-   and .summary.loop_action_reason == $reason
-   and has("mode_id")
-   and has("approach_source")
-   and has("approach_sha256")
-   and (.mode_id == null)
-   and (.approach_source == null)
-   and (.approach_sha256 == null)' \
+   | .result == "failed"
+   and .assigned_issue_id == $assigned
+   and .issue_id == $actual
+   and .summary_schema_status == "invalid"
+   and (.summary_schema_reason_codes | index("mismatch:assigned_issue_id") != null)
+   and .summary.assignment_match == false' \
   "${ROOT}/agent-logs/metrics.jsonl" >/dev/null
 
-grep -F -- "configured mode attribution: mode_id=none approach_source=none approach_sha256=none" "${SESSION_LOG}" >/dev/null
-
-echo "drain-stop observability regression passed"
+echo "assigned issue contract regression passed"

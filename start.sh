@@ -40,6 +40,7 @@ ORCA_NO_WORK_RETRY_LIMIT="${ORCA_NO_WORK_RETRY_LIMIT:-1}"
 ORCA_MODE_ID="${ORCA_MODE_ID:-}"
 ORCA_WORK_APPROACH_FILE="${ORCA_WORK_APPROACH_FILE:-}"
 ORCA_FORCE_COUNT="${ORCA_FORCE_COUNT:-0}"
+ORCA_ASSIGNMENT_MODE="${ORCA_ASSIGNMENT_MODE:-assigned}"
 ORCA_PRIMARY_REPO="${ORCA_PRIMARY_REPO:-}"
 ORCA_WITH_LOCK_PATH="${ORCA_WITH_LOCK_PATH:-}"
 ORCA_QUEUE_WRITE_MAIN_PATH="${ORCA_QUEUE_WRITE_MAIN_PATH:-}"
@@ -198,6 +199,20 @@ ready_issue_count() {
   printf '%s\n' "${ready_count}"
 }
 
+ready_issue_ids() {
+  local ready_json
+
+  if ! ready_json="$(br ready --json 2>/dev/null)"; then
+    echo "[start] failed to query ready issues via br ready --json" >&2
+    return 1
+  fi
+
+  if ! jq -re 'if type == "array" then .[].id else error("ready output must be an array") end' <<< "${ready_json}" 2>/dev/null; then
+    echo "[start] unable to parse ready issue ids from br ready --json output" >&2
+    return 1
+  fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --runs)
@@ -314,6 +329,11 @@ if ! [[ "${ORCA_FORCE_COUNT}" =~ ^[01]$ ]]; then
   exit 1
 fi
 
+if [[ "${ORCA_ASSIGNMENT_MODE}" != "assigned" && "${ORCA_ASSIGNMENT_MODE}" != "self-select" ]]; then
+  echo "[start] ORCA_ASSIGNMENT_MODE must be 'assigned' or 'self-select': ${ORCA_ASSIGNMENT_MODE}" >&2
+  exit 1
+fi
+
 if [[ -n "${ORCA_MODE_ID}" && ! "${ORCA_MODE_ID}" =~ ^[A-Za-z0-9._-]+$ ]]; then
   echo "[start] ORCA_MODE_ID must contain only letters, digits, dot, underscore, or dash: ${ORCA_MODE_ID}" >&2
   exit 1
@@ -386,7 +406,12 @@ for i in $(seq 1 "${COUNT}"); do
 done
 
 ready_count="$(ready_issue_count)"
-if [[ "${ORCA_FORCE_COUNT}" -eq 1 ]]; then
+if [[ "${ORCA_ASSIGNMENT_MODE}" == "assigned" ]]; then
+  launch_limit="${ready_count}"
+  if [[ "${launch_limit}" -gt "${launch_candidates}" ]]; then
+    launch_limit="${launch_candidates}"
+  fi
+elif [[ "${ORCA_FORCE_COUNT}" -eq 1 ]]; then
   launch_limit="${launch_candidates}"
 else
   launch_limit="${ready_count}"
@@ -395,13 +420,19 @@ else
   fi
 fi
 
-echo "[start] launch planning: requested=${COUNT} running=${running_sessions} ready=${ready_count} launchable=${launch_candidates} launching=${launch_limit} force_count=${ORCA_FORCE_COUNT}"
+echo "[start] launch planning: requested=${COUNT} running=${running_sessions} ready=${ready_count} launchable=${launch_candidates} launching=${launch_limit} force_count=${ORCA_FORCE_COUNT} assignment_mode=${ORCA_ASSIGNMENT_MODE}"
+
+ready_ids=()
+if [[ "${ORCA_ASSIGNMENT_MODE}" == "assigned" && "${launch_limit}" -gt 0 ]]; then
+  mapfile -t ready_ids < <(ready_issue_ids)
+fi
 
 launched_count=0
 for i in $(seq 1 "${COUNT}"); do
   session="${SESSION_PREFIX}-${i}"
   session_id="${session}-$(date -u +%Y%m%dT%H%M%SZ)"
   worktree="${ROOT}/worktrees/agent-${i}"
+  assigned_issue_id=""
 
   if tmux has-session -t "${session}" 2>/dev/null; then
     echo "[start] session ${session} already running"
@@ -413,8 +444,19 @@ for i in $(seq 1 "${COUNT}"); do
     continue
   fi
 
+  if [[ "${ORCA_ASSIGNMENT_MODE}" == "assigned" ]]; then
+    ready_index="${launched_count}"
+    if [[ "${ready_index}" -lt "${#ready_ids[@]}" ]]; then
+      assigned_issue_id="${ready_ids[ready_index]}"
+    fi
+    if [[ -z "${assigned_issue_id}" ]]; then
+      echo "[start] skipping ${session}: no assigned issue available under assignment mode" >&2
+      continue
+    fi
+  fi
+
   echo "[start] launching ${session} in ${worktree}"
-  tmux_cmd="$(printf "cd %q && AGENT_NAME=%q AGENT_SESSION_ID=%q WORKTREE=%q AGENT_MODEL=%q AGENT_REASONING_LEVEL=%q AGENT_COMMAND=%q PROMPT_TEMPLATE=%q MAX_RUNS=%q RUN_SLEEP_SECONDS=%q ORCA_TIMING_METRICS=%q ORCA_COMPACT_SUMMARY=%q ORCA_PRIMARY_REPO=%q ORCA_WITH_LOCK_PATH=%q ORCA_LOCK_SCOPE=%q ORCA_LOCK_TIMEOUT_SECONDS=%q ORCA_NO_WORK_DRAIN_MODE=%q ORCA_NO_WORK_RETRY_LIMIT=%q ORCA_MODE_ID=%q ORCA_WORK_APPROACH_FILE=%q ORCA_QUEUE_WRITE_MAIN_PATH=%q ORCA_MERGE_MAIN_PATH=%q ORCA_BASE_REF=%q %q" \
+  tmux_cmd="$(printf "cd %q && AGENT_NAME=%q AGENT_SESSION_ID=%q WORKTREE=%q AGENT_MODEL=%q AGENT_REASONING_LEVEL=%q AGENT_COMMAND=%q PROMPT_TEMPLATE=%q MAX_RUNS=%q RUN_SLEEP_SECONDS=%q ORCA_TIMING_METRICS=%q ORCA_COMPACT_SUMMARY=%q ORCA_ASSIGNMENT_MODE=%q ORCA_ASSIGNED_ISSUE_ID=%q ORCA_PRIMARY_REPO=%q ORCA_WITH_LOCK_PATH=%q ORCA_LOCK_SCOPE=%q ORCA_LOCK_TIMEOUT_SECONDS=%q ORCA_NO_WORK_DRAIN_MODE=%q ORCA_NO_WORK_RETRY_LIMIT=%q ORCA_MODE_ID=%q ORCA_WORK_APPROACH_FILE=%q ORCA_QUEUE_WRITE_MAIN_PATH=%q ORCA_MERGE_MAIN_PATH=%q ORCA_BASE_REF=%q %q" \
     "${ROOT}" \
     "agent-${i}" \
     "${session_id}" \
@@ -427,6 +469,8 @@ for i in $(seq 1 "${COUNT}"); do
     "${RUN_SLEEP_SECONDS}" \
     "${ORCA_TIMING_METRICS}" \
     "${ORCA_COMPACT_SUMMARY}" \
+    "${ORCA_ASSIGNMENT_MODE}" \
+    "${assigned_issue_id}" \
     "${ORCA_PRIMARY_REPO}" \
     "${ORCA_WITH_LOCK_PATH}" \
     "${ORCA_LOCK_SCOPE}" \

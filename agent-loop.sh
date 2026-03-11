@@ -39,6 +39,8 @@ ORCA_LOCK_SCOPE="${ORCA_LOCK_SCOPE:-merge}"
 ORCA_LOCK_TIMEOUT_SECONDS="${ORCA_LOCK_TIMEOUT_SECONDS:-120}"
 ORCA_NO_WORK_DRAIN_MODE="${ORCA_NO_WORK_DRAIN_MODE:-drain}"
 ORCA_NO_WORK_RETRY_LIMIT="${ORCA_NO_WORK_RETRY_LIMIT:-1}"
+ORCA_ASSIGNMENT_MODE="${ORCA_ASSIGNMENT_MODE:-assigned}"
+ORCA_ASSIGNED_ISSUE_ID="${ORCA_ASSIGNED_ISSUE_ID:-}"
 ORCA_MODE_ID="${ORCA_MODE_ID:-}"
 ORCA_WORK_APPROACH_FILE="${ORCA_WORK_APPROACH_FILE:-}"
 AGENT_LOG_ROOT="${ROOT}/agent-logs"
@@ -81,6 +83,21 @@ fi
 
 if ! [[ "${ORCA_NO_WORK_RETRY_LIMIT}" =~ ^[0-9]+$ ]]; then
   echo "ORCA_NO_WORK_RETRY_LIMIT must be a non-negative integer: ${ORCA_NO_WORK_RETRY_LIMIT}" >&2
+  exit 1
+fi
+
+if [[ "${ORCA_ASSIGNMENT_MODE}" != "assigned" && "${ORCA_ASSIGNMENT_MODE}" != "self-select" ]]; then
+  echo "ORCA_ASSIGNMENT_MODE must be 'assigned' or 'self-select': ${ORCA_ASSIGNMENT_MODE}" >&2
+  exit 1
+fi
+
+if [[ -n "${ORCA_ASSIGNED_ISSUE_ID}" && ! "${ORCA_ASSIGNED_ISSUE_ID}" =~ ^[A-Za-z0-9._:-]+$ ]]; then
+  echo "ORCA_ASSIGNED_ISSUE_ID must contain only letters, digits, dot, underscore, colon, or dash: ${ORCA_ASSIGNED_ISSUE_ID}" >&2
+  exit 1
+fi
+
+if [[ "${ORCA_ASSIGNMENT_MODE}" == "assigned" && -z "${ORCA_ASSIGNED_ISSUE_ID}" ]]; then
+  echo "ORCA_ASSIGNED_ISSUE_ID is required when ORCA_ASSIGNMENT_MODE=assigned" >&2
   exit 1
 fi
 
@@ -163,6 +180,8 @@ RUN_SUMMARY_DISCOVERY_COUNT=""
 RUN_SUMMARY_DISCOVERY_IDS=""
 RUN_SUMMARY_SCHEMA_STATUS="not_checked"
 RUN_SUMMARY_SCHEMA_REASON_CODES=""
+RUN_SUMMARY_ASSIGNED_ISSUE_ID="${ORCA_ASSIGNED_ISSUE_ID}"
+RUN_SUMMARY_ASSIGNMENT_MATCH=""
 RUN_TOKENS_USED=""
 RUN_TOKENS_PARSE_STATUS="missing"
 RUN_BRANCH_NAME=""
@@ -252,6 +271,8 @@ start_run_artifacts() {
   RUN_SUMMARY_DISCOVERY_IDS=""
   RUN_SUMMARY_SCHEMA_STATUS="not_checked"
   RUN_SUMMARY_SCHEMA_REASON_CODES=""
+  RUN_SUMMARY_ASSIGNED_ISSUE_ID="${ORCA_ASSIGNED_ISSUE_ID}"
+  RUN_SUMMARY_ASSIGNMENT_MATCH=""
   RUN_TOKENS_USED=""
   RUN_TOKENS_PARSE_STATUS="missing"
   RUN_BRANCH_NAME=""
@@ -420,10 +441,17 @@ build_agent_command_for_run() {
 write_prompt_file() {
   local prompt_file="$1"
   local prompt_text
+  local issue_placeholder="agent-selected"
+
+  if [[ -n "${ORCA_ASSIGNED_ISSUE_ID}" ]]; then
+    issue_placeholder="${ORCA_ASSIGNED_ISSUE_ID}"
+  fi
 
   prompt_text="$(cat "${PROMPT_TEMPLATE}")"
   prompt_text="${prompt_text//__AGENT_NAME__/${AGENT_NAME}}"
-  prompt_text="${prompt_text//__ISSUE_ID__/agent-selected}"
+  prompt_text="${prompt_text//__ISSUE_ID__/${issue_placeholder}}"
+  prompt_text="${prompt_text//__ASSIGNED_ISSUE_ID__/${ORCA_ASSIGNED_ISSUE_ID}}"
+  prompt_text="${prompt_text//__ASSIGNMENT_MODE__/${ORCA_ASSIGNMENT_MODE}}"
   prompt_text="${prompt_text//__WORKTREE__/${WORKTREE}}"
   prompt_text="${prompt_text//__RUN_SUMMARY_PATH__/${SUMMARY_JSON_FILE}}"
   prompt_text="${prompt_text//__RUN_SUMMARY_JSON__/${SUMMARY_JSON_FILE}}"
@@ -514,6 +542,13 @@ parse_summary_json_if_present() {
       ""
     end
   ' "${SUMMARY_JSON_FILE}")"
+  if [[ -n "${ORCA_ASSIGNED_ISSUE_ID}" ]]; then
+    if [[ "${RUN_SUMMARY_ISSUE_ID}" == "${ORCA_ASSIGNED_ISSUE_ID}" ]]; then
+      RUN_SUMMARY_ASSIGNMENT_MATCH="true"
+    else
+      RUN_SUMMARY_ASSIGNMENT_MATCH="false"
+    fi
+  fi
 
   validate_summary_json_schema
   if [[ "${RUN_SUMMARY_SCHEMA_STATUS}" == "invalid" ]]; then
@@ -535,7 +570,7 @@ validate_summary_json_schema() {
     return
   fi
 
-  schema_codes="$(jq -r '
+  schema_codes="$(jq -r --arg assigned_issue_id "${ORCA_ASSIGNED_ISSUE_ID}" '
     def errs:
       []
       + (if has("issue_id") then [] else ["missing:issue_id"] end)
@@ -558,6 +593,7 @@ validate_summary_json_schema() {
       + (if (has("loop_action_reason") and (.loop_action_reason | type == "string")) then [] else (if has("loop_action_reason") then ["type:loop_action_reason"] else [] end) end)
       + (if has("notes") then [] else ["missing:notes"] end)
       + (if (has("notes") and (.notes | type == "string")) then [] else (if has("notes") then ["type:notes"] else [] end) end)
+      + (if ($assigned_issue_id | length) == 0 then [] else (if (has("issue_id") and (.issue_id == $assigned_issue_id)) then [] else ["mismatch:assigned_issue_id"] end) end)
       ;
     (errs | unique) as $e
     | if ($e | length) == 0 then "" else ($e | join(",")) end
@@ -652,6 +688,12 @@ write_run_summary_markdown() {
     if [[ -n "${RUN_SUMMARY_ISSUE_ID}" ]]; then
       echo "- Issue: ${RUN_SUMMARY_ISSUE_ID}"
     fi
+    if [[ -n "${RUN_SUMMARY_ASSIGNED_ISSUE_ID}" ]]; then
+      echo "- Assigned Issue: ${RUN_SUMMARY_ASSIGNED_ISSUE_ID}"
+      if [[ -n "${RUN_SUMMARY_ASSIGNMENT_MATCH}" ]]; then
+        echo "- Assigned Issue Match: ${RUN_SUMMARY_ASSIGNMENT_MATCH}"
+      fi
+    fi
     if [[ -n "${RUN_SUMMARY_RESULT}" ]]; then
       echo "- Summary Result: ${RUN_SUMMARY_RESULT}"
     fi
@@ -712,6 +754,8 @@ append_metrics_jsonl() {
     --arg summary_merged "${RUN_SUMMARY_MERGED}" \
     --arg summary_discovery_count "${RUN_SUMMARY_DISCOVERY_COUNT}" \
     --arg summary_discovery_ids_csv "${RUN_SUMMARY_DISCOVERY_IDS}" \
+    --arg assigned_issue_id "${RUN_SUMMARY_ASSIGNED_ISSUE_ID}" \
+    --arg summary_assignment_match "${RUN_SUMMARY_ASSIGNMENT_MATCH}" \
     --arg summary_parse_status "${RUN_SUMMARY_PARSE_STATUS}" \
     --arg summary_schema_status "${RUN_SUMMARY_SCHEMA_STATUS}" \
     --arg summary_schema_reason_codes_csv "${RUN_SUMMARY_SCHEMA_REASON_CODES}" \
@@ -737,6 +781,7 @@ append_metrics_jsonl() {
       exit_code: $exit_code,
       result: $result,
       reason: $reason,
+      assigned_issue_id: (if ($assigned_issue_id | length) > 0 then $assigned_issue_id else null end),
       issue_id: (if ($issue | length) > 0 then $issue else null end),
       mode_id: (if ($mode_id | length) > 0 then $mode_id else null end),
       approach_source: (if ($approach_source | length) > 0 then $approach_source else null end),
@@ -771,6 +816,13 @@ append_metrics_jsonl() {
         discovery_ids: (
           if ($summary_discovery_ids_csv | length) == 0 then []
           else ($summary_discovery_ids_csv | split(","))
+          end
+        ),
+        assignment_match: (
+          if ($summary_assignment_match | length) == 0 then null
+          elif $summary_assignment_match == "true" then true
+          elif $summary_assignment_match == "false" then false
+          else $summary_assignment_match
           end
         ),
         loop_action: $loop_action,
@@ -862,6 +914,7 @@ log "agent lock helper: ${LOCK_HELPER_PATH}"
 log "agent queue write helper: ${QUEUE_WRITE_HELPER_PATH}"
 log "agent merge helper: ${MERGE_HELPER_PATH}"
 log "no_work drain mode: ${ORCA_NO_WORK_DRAIN_MODE} (retry limit: ${ORCA_NO_WORK_RETRY_LIMIT})"
+log "assignment mode: ${ORCA_ASSIGNMENT_MODE} (assigned issue: ${ORCA_ASSIGNED_ISSUE_ID:-none})"
 refresh_mode_approach_attribution
 log "configured mode attribution: mode_id=${RUN_MODE_ID:-none} approach_source=${RUN_APPROACH_SOURCE:-none} approach_sha256=${RUN_APPROACH_SHA256:-none}"
 log "harness version: ${HARNESS_VERSION}"
@@ -915,6 +968,8 @@ while true; do
     ORCA_WITH_LOCK_PATH="${LOCK_HELPER_PATH}" \
     ORCA_QUEUE_WRITE_MAIN_PATH="${QUEUE_WRITE_HELPER_PATH}" \
     ORCA_MERGE_MAIN_PATH="${MERGE_HELPER_PATH}" \
+    ORCA_ASSIGNMENT_MODE="${ORCA_ASSIGNMENT_MODE}" \
+    ORCA_ASSIGNED_ISSUE_ID="${ORCA_ASSIGNED_ISSUE_ID}" \
     ORCA_LOCK_SCOPE="${ORCA_LOCK_SCOPE}" \
     ORCA_LOCK_TIMEOUT_SECONDS="${ORCA_LOCK_TIMEOUT_SECONDS}" \
     bash -lc "${RUN_AGENT_COMMAND}" < "${prompt_file}" >> "${LOGFILE}" 2>&1; then

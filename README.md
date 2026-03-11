@@ -50,7 +50,7 @@ Operating stance: autonomy with explicit protocol guidance (Option C; see `docs/
 
 - `start [count] [--runs N|--continuous] [--drain|--watch] [--no-work-retries N] [--reasoning-level LEVEL]`
 - `stop`
-- `status [--quick|--full]`
+- `status [--quick|--full] [--session-id ID] [--session-prefix PREFIX]`
 - `gc-run-branches [--apply] [--base REF]`
 - `setup-worktrees [count]`
 - `with-lock [--scope NAME] [--timeout SECONDS] -- <command> [args...]`
@@ -237,13 +237,15 @@ Signal handling:
 
 1. defaults to `--quick` for a fast active-operations view (health summary, active sessions, current claims, latest run activity, high-signal alerts)
 2. supports `--full` for complete diagnostics (legacy output depth)
-3. in full mode, prints queue backend diagnostics for `br` (version, workspace presence, doctor result, sync status)
-4. in full mode, prints per-agent latest activity from `metrics.jsonl` (result, issue, age, duration, tokens, loop action)
-5. in full mode, prints tmux sessions and git worktrees
-6. in full mode, prints queue snapshots (`in_progress`, `closed`)
-7. in full mode, prints latest metrics rows with agent and relative age
-8. full-mode metrics summary is cached by `metrics.jsonl` fingerprint (`size:mtime`) under `agent-logs/cache`; unchanged files reuse cached counters/agent latest rows
-9. cache limitation: the first `--full` call after any `metrics.jsonl` change still performs a full parse to refresh cache
+3. supports session scoping with `--session-id` (exact match) and `--session-prefix` (prefix match) for both quick and full views
+4. reports active run state per scoped session (`state=running|idle`) from live run artifacts so operators can distinguish in-progress execution from idle/stalled state
+5. in full mode, prints queue backend diagnostics for `br` (version, workspace presence, doctor result, sync status)
+6. in full mode, prints per-agent latest activity from `metrics.jsonl` (session, result, issue, age, duration, tokens, loop action)
+7. in full mode, prints tmux sessions and git worktrees
+8. in full mode, prints queue snapshots (`in_progress`, `closed`)
+9. in full mode, prints latest metrics rows with session, agent, and relative age
+10. full-mode metrics summary is cached by `metrics.jsonl` fingerprint (`size:mtime:v2`) under `agent-logs/cache`; unchanged files reuse cached counters/agent latest rows
+11. cache limitation: the first `--full` call after any `metrics.jsonl` change still performs a full parse to refresh cache
 
 Tuning knobs:
 

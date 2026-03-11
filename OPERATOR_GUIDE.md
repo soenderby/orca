@@ -107,11 +107,13 @@ Watch/poll mode override:
 ```bash
 ./orca.sh status            # quick mode (default)
 ./orca.sh status --full     # detailed diagnostics
+./orca.sh status --quick --session-prefix "orca-agent-1-20260311T07"   # scope to matching sessions
+./orca.sh status --full --session-id "<session-id>"                     # scope to one exact session
 find agent-logs/sessions -type f | sort | tail -n 20
 tail -n 10 agent-logs/metrics.jsonl
 ```
 
-`orca status` defaults to quick mode for frequent checks. Use `--full` when you need complete `br` diagnostics, worktree hygiene detail, and extended metrics sections.
+`orca status` defaults to quick mode for frequent checks. Use `--full` when you need complete `br` diagnostics, worktree hygiene detail, and extended metrics sections. Both modes show scoped active run state (`state=running|idle`) and support session scoping with `--session-id` / `--session-prefix`.
 
 ### 4) Stop
 

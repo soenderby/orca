@@ -74,6 +74,80 @@ If Option C is disconfirmed, default migration path is to **Option B first** (hy
 
 ---
 
+## DL-002 — Contextual operating modes via defaults, not enforcement
+
+- **Date:** 2026-03-11
+- **Status:** Active
+- **Owner:** Operator
+
+### Decision
+
+Adopt a **two-mode operating model** (`execute`, `explore`) as optional profile defaults, while keeping Orca's core architecture unchanged:
+
+- keep hard constraints minimal and boundary-focused
+- use tools/defaults/guidance for behavior shaping
+- evaluate outcomes empirically before promoting defaults
+
+This is a directional decision; implementation is staged through queue issues.
+
+### Context
+
+Operator needs shift by task type:
+- sometimes throughput and tight scope are desired
+- sometimes ambiguous terrain benefits from higher autonomy
+
+A single global behavior posture is too blunt. At the same time, adding extensive runtime checks risks overfitting Orca to current model limitations and reducing long-term adaptability.
+
+### Options considered
+
+1. **Single fixed mode**
+   - simple, but mismatched to real operator intent variability
+2. **Hard policy enforcement expansion**
+   - stronger control, but high complexity and likely long-term drag
+3. **Contextual profile defaults (chosen)**
+   - lightweight, reversible, keeps reasoning with agents
+
+### Why this option
+
+1. Preserves Orca principle: harness handles transport, agents handle decisions.
+2. Supports both throughput-biased and autonomy-biased sessions without a policy engine.
+3. Avoids premature fencing while still enabling controlled experiments.
+4. Encourages learning loops from observed outcomes instead of speculative constraints.
+
+### Risks accepted
+
+- Mode defaults may be ignored or misapplied by agents.
+- Prompt/profile surface can grow if not pruned.
+- Experiment conclusions can be wrong without run-level attribution.
+
+### Guardrails for this decision
+
+- Keep mechanical invariants only at shared/irreversible boundaries.
+- Any mode/approach experiment must be attributable in metrics/logs.
+- Remove defaults that do not show measurable benefit.
+
+### Revisit triggers
+
+Reopen this decision if:
+1. profile complexity starts encoding runtime reasoning in harness scripts
+2. optional guidance grows into large mandatory prompt ballast
+3. experiments repeatedly fail to show outcome improvements
+4. repeated safety incidents show boundary guardrails are insufficient
+
+### Disconfirming evidence
+
+DL-002 is disconfirmed if contextual profiles create persistent complexity without measurable gains in throughput, quality, or operator effort relative to a simpler baseline.
+
+### Next-step implication
+
+Implement in stages:
+1. observability attribution for mode/approach
+2. queue-aware start capping (start-side efficiency)
+3. optional work-approach injection
+4. mode selector wiring with explicit override semantics
+
+---
+
 ## Entry template
 
 Use this template for new decisions:

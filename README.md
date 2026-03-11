@@ -11,8 +11,10 @@ Current documentation:
 1. `README.md` (this file): technical reference and command/runtime details
 2. `docs/design.md`: purpose and design principles
 3. `docs/decision-log.md`: architecture/operating decisions and revisit triggers
-4. `AGENT_PROMPT.md`: active worker prompt contract
-5. `OPERATOR_GUIDE.md`: operator playbook
+4. `docs/operating-modes.md`: proposed mode profiles (`execute|explore`) and experiment plan
+5. `AGENT_PROMPT.md`: active worker prompt contract
+6. `OPERATOR_GUIDE.md`: operator playbook
+7. `SESSION_PRIMER.md`: single-session interaction contract and quick-prime text
 
 ## Entrypoints
 

@@ -823,7 +823,7 @@ fi
 if [[ "${MAX_RUNS}" -eq 0 ]]; then
   log "run mode: unbounded"
 else
-  log "run mode: stop after ${MAX_RUNS} runs"
+  log "run mode: max ${MAX_RUNS} runs (upper bound; may stop earlier)"
 fi
 
 while true; do

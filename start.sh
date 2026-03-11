@@ -39,6 +39,7 @@ ORCA_NO_WORK_DRAIN_MODE="${ORCA_NO_WORK_DRAIN_MODE:-drain}"
 ORCA_NO_WORK_RETRY_LIMIT="${ORCA_NO_WORK_RETRY_LIMIT:-1}"
 ORCA_MODE_ID="${ORCA_MODE_ID:-}"
 ORCA_WORK_APPROACH_FILE="${ORCA_WORK_APPROACH_FILE:-}"
+ORCA_FORCE_COUNT="${ORCA_FORCE_COUNT:-0}"
 ORCA_PRIMARY_REPO="${ORCA_PRIMARY_REPO:-}"
 ORCA_WITH_LOCK_PATH="${ORCA_WITH_LOCK_PATH:-}"
 ORCA_QUEUE_WRITE_MAIN_PATH="${ORCA_QUEUE_WRITE_MAIN_PATH:-}"
@@ -180,6 +181,23 @@ validate_all_worktrees_before_launch() {
   fi
 }
 
+ready_issue_count() {
+  local ready_json
+  local ready_count
+
+  if ! ready_json="$(br ready --json 2>/dev/null)"; then
+    echo "[start] failed to query ready issues via br ready --json" >&2
+    return 1
+  fi
+
+  if ! ready_count="$(jq -re 'if type == "array" then length else error("ready output must be an array") end' <<< "${ready_json}" 2>/dev/null)"; then
+    echo "[start] unable to parse ready issue count from br ready --json output" >&2
+    return 1
+  fi
+
+  printf '%s\n' "${ready_count}"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --runs)
@@ -291,6 +309,11 @@ if ! [[ "${ORCA_NO_WORK_RETRY_LIMIT}" =~ ^[0-9]+$ ]]; then
   exit 1
 fi
 
+if ! [[ "${ORCA_FORCE_COUNT}" =~ ^[01]$ ]]; then
+  echo "[start] ORCA_FORCE_COUNT must be 0 or 1: ${ORCA_FORCE_COUNT}" >&2
+  exit 1
+fi
+
 if [[ -n "${ORCA_MODE_ID}" && ! "${ORCA_MODE_ID}" =~ ^[A-Za-z0-9._-]+$ ]]; then
   echo "[start] ORCA_MODE_ID must contain only letters, digits, dot, underscore, or dash: ${ORCA_MODE_ID}" >&2
   exit 1
@@ -351,6 +374,30 @@ echo "[start] run mode: ${mode_message}"
 "${SCRIPT_DIR}/setup-worktrees.sh" "${COUNT}"
 validate_all_worktrees_before_launch
 
+running_sessions=0
+launch_candidates=0
+for i in $(seq 1 "${COUNT}"); do
+  session="${SESSION_PREFIX}-${i}"
+  if tmux has-session -t "${session}" 2>/dev/null; then
+    ((running_sessions += 1))
+  else
+    ((launch_candidates += 1))
+  fi
+done
+
+ready_count="$(ready_issue_count)"
+if [[ "${ORCA_FORCE_COUNT}" -eq 1 ]]; then
+  launch_limit="${launch_candidates}"
+else
+  launch_limit="${ready_count}"
+  if [[ "${launch_limit}" -gt "${launch_candidates}" ]]; then
+    launch_limit="${launch_candidates}"
+  fi
+fi
+
+echo "[start] launch planning: requested=${COUNT} running=${running_sessions} ready=${ready_count} launchable=${launch_candidates} launching=${launch_limit} force_count=${ORCA_FORCE_COUNT}"
+
+launched_count=0
 for i in $(seq 1 "${COUNT}"); do
   session="${SESSION_PREFIX}-${i}"
   session_id="${session}-$(date -u +%Y%m%dT%H%M%SZ)"
@@ -358,6 +405,11 @@ for i in $(seq 1 "${COUNT}"); do
 
   if tmux has-session -t "${session}" 2>/dev/null; then
     echo "[start] session ${session} already running"
+    continue
+  fi
+
+  if [[ "${launched_count}" -ge "${launch_limit}" ]]; then
+    echo "[start] skipping ${session}: launch cap reached"
     continue
   fi
 
@@ -388,6 +440,7 @@ for i in $(seq 1 "${COUNT}"); do
     "${ORCA_BASE_REF}" \
     "${SCRIPT_DIR}/agent-loop.sh")"
   tmux new-session -d -s "${session}" "${tmux_cmd}"
+  ((launched_count += 1))
 
   sleep 1
   if ! tmux has-session -t "${session}" 2>/dev/null; then
@@ -401,6 +454,8 @@ for i in $(seq 1 "${COUNT}"); do
     fi
   fi
 done
+
+echo "[start] launch summary: requested=${COUNT} running=${running_sessions} ready=${ready_count} launched=${launched_count}"
 
 echo "[start] running sessions:"
 tmux ls | grep "^${SESSION_PREFIX}-" || true

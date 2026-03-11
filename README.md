@@ -193,12 +193,13 @@ Startup checks:
 8. `ORCA_LOCK_TIMEOUT_SECONDS` positive integer
 9. `ORCA_NO_WORK_DRAIN_MODE` is `drain|watch`
 10. `ORCA_NO_WORK_RETRY_LIMIT` non-negative integer
-11. `.beads/` workspace exists and `br doctor` succeeds
-12. each non-running agent worktree is clean (`git status --porcelain` empty)
-13. `AGENT_REASONING_LEVEL` (if set) matches `[A-Za-z0-9._-]+`
-14. `PROMPT_TEMPLATE` exists
-15. `ORCA_PRIMARY_REPO` points to a valid git worktree
-16. `ORCA_WITH_LOCK_PATH`, `ORCA_QUEUE_WRITE_MAIN_PATH`, and `ORCA_MERGE_MAIN_PATH` are executable
+11. `ORCA_FORCE_COUNT` is `0|1`
+12. `.beads/` workspace exists and `br doctor` succeeds
+13. each non-running agent worktree is clean (`git status --porcelain` empty)
+14. `AGENT_REASONING_LEVEL` (if set) matches `[A-Za-z0-9._-]+`
+15. `PROMPT_TEMPLATE` exists
+16. `ORCA_PRIMARY_REPO` points to a valid git worktree
+17. `ORCA_WITH_LOCK_PATH`, `ORCA_QUEUE_WRITE_MAIN_PATH`, and `ORCA_MERGE_MAIN_PATH` are executable
 
 Behavior:
 
@@ -208,7 +209,10 @@ Behavior:
 4. validates local `br` queue workspace health before launch
 5. invokes `setup-worktrees.sh` before launching sessions
 6. injects runtime knobs into each session
-7. refuses to launch sessions when a non-running agent worktree is dirty, with per-path status output
+7. defaults to launch capping: new launches are limited by current ready queue depth (`br ready --json`)
+8. `ORCA_FORCE_COUNT=1` bypasses launch capping and launches all requested non-running sessions
+9. logs launch planning and summary counts (`requested`, `running`, `ready`, `launchable/launched`, `force_count`)
+10. refuses to launch sessions when a non-running agent worktree is dirty, with per-path status output
 
 ### `agent-loop.sh`
 
@@ -333,6 +337,7 @@ Primary repo and helper paths are injected to agents as:
 - `ORCA_NO_WORK_RETRY_LIMIT`: non-negative retry budget for transient consecutive `no_work` in `drain` mode (default `1`)
 - `ORCA_MODE_ID`: optional mode identifier for observability attribution (for example `execute` or `explore`; empty by default)
 - `ORCA_WORK_APPROACH_FILE`: optional path/identifier for approach guidance attribution; when readable, `agent-loop.sh` records content SHA256 in metrics/session logs
+- `ORCA_FORCE_COUNT`: when `0` (default), cap new launches to current ready queue depth; set to `1` to bypass this cap and force full requested launch count for non-running sessions
 - `ORCA_PRIMARY_REPO`: primary repository path used for lock-guarded claim publication and merge/push operations; defaults to repo root in both `start.sh` and `agent-loop.sh`, and must be a valid git worktree
 - `ORCA_WITH_LOCK_PATH`: absolute path to lock helper passed to agents; defaults to `<repo-root>/with-lock.sh` in both `start.sh` and `agent-loop.sh`, and must be executable
 - `ORCA_QUEUE_WRITE_MAIN_PATH`: absolute path to queue mutation helper passed to agents (default `<repo-root>/queue-write-main.sh`)

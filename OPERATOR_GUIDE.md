@@ -69,6 +69,27 @@ Run branches (`swarm/agent-*`, `swarm/*-run-*`) are local transport state in thi
 
 Cross-machine note: lock files are local to each clone. Global contention resolves through git publication order on `main`; failed claim publication should be treated as a race and retried with a fresh import.
 
+## Issue Parallel-Safety Metadata
+
+Orca supports lightweight label metadata to describe whether issues are safe to run concurrently.
+
+Label taxonomy:
+
+1. `px:exclusive`: the issue must run alone.
+2. `ck:<key>`: contention key; issues with the same key should not run in parallel.
+
+Precedence:
+
+1. `px:exclusive` always overrides `ck:*`.
+2. Unlabeled issues are considered parallel-allowed by default.
+
+Authoring guidance:
+
+1. Use `px:exclusive` for work with broad blast radius or uncertain overlap.
+2. Use `ck:<key>` for bounded contention areas (for example `ck:queue`, `ck:docs`, `ck:agent-loop`).
+3. Reuse stable keys by subsystem so scheduling behavior stays predictable across sessions.
+4. Do not add labels by default; only label when you know there is real contention risk.
+
 ## Core Workflow
 
 ### 1) Setup

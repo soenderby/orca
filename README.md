@@ -46,6 +46,28 @@ Orca with `br` uses git-based async queue collaboration (`.beads/issues.jsonl`),
 8. Cross-machine note: lock files are local. Concurrency across machines is resolved by git publication order on `main` (losing claim attempts must re-import and pick another issue).
 9. Local source-of-truth policy: local `main` is the default base for local setup/run operations; `origin/main` is used for synchronization and fallback only. When local `main` and `origin/main` diverge, Orca warns with ahead/behind counts and still defaults to local `main`.
 
+## Issue Parallel-Safety Metadata
+
+Orca issue scheduling may run tasks in parallel, so issues should declare known contention using labels.
+
+Label taxonomy:
+
+1. `px:exclusive`: issue must run alone and should not be scheduled with any other issue.
+2. `ck:<key>`: contention key. Issues sharing the same `ck:<key>` should not run together.
+
+Precedence rules:
+
+1. `px:exclusive` overrides any `ck:*` labels.
+2. If multiple issues share `ck:<key>`, treat that key as mutually exclusive for concurrent scheduling.
+3. Unlabeled issues are parallel-allowed by default.
+
+Authoring guidance:
+
+1. Add `px:exclusive` for high-risk work with broad or hard-to-predict impact (for example: repo-wide refactors, schema migrations, or lockfile/toolchain rewrites).
+2. Add `ck:<key>` when overlap is localized to a subsystem (for example: `ck:queue`, `ck:docs`, `ck:agent-loop`, `ck:build`).
+3. Prefer stable, subsystem-oriented keys over issue-specific keys so contention is predictable across runs.
+4. If unsure, start with a `ck:<key>` label and escalate to `px:exclusive` only when isolation is required.
+
 Operating stance: autonomy with explicit protocol guidance (Option C; see `docs/decision-log.md`, DL-001). Orca provides safety guardrails and observability, while agents retain broad execution autonomy.
 
 ## Commands

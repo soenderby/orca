@@ -301,6 +301,9 @@ Each metrics row includes:
 1. `harness_version` (`git describe --always --dirty` from the harness repo)
 2. `summary_schema_status` (`valid|invalid|not_checked`)
 3. `summary_schema_reason_codes` (array of deterministic validation codes when invalid)
+4. `mode_id` (nullable mode identifier for experiment attribution)
+5. `approach_source` (nullable approach file path/identifier when configured)
+6. `approach_sha256` (nullable SHA256 digest of approach content when readable)
 
 Archived legacy logs:
 
@@ -328,6 +331,8 @@ Primary repo and helper paths are injected to agents as:
 - `ORCA_LOCK_TIMEOUT_SECONDS`: lock timeout seconds for shared writer lock operations (default `120`)
 - `ORCA_NO_WORK_DRAIN_MODE`: `drain` (default) or `watch`; `drain` stops loops on sustained `no_work`, `watch` keeps polling
 - `ORCA_NO_WORK_RETRY_LIMIT`: non-negative retry budget for transient consecutive `no_work` in `drain` mode (default `1`)
+- `ORCA_MODE_ID`: optional mode identifier for observability attribution (for example `execute` or `explore`; empty by default)
+- `ORCA_WORK_APPROACH_FILE`: optional path/identifier for approach guidance attribution; when readable, `agent-loop.sh` records content SHA256 in metrics/session logs
 - `ORCA_PRIMARY_REPO`: primary repository path used for lock-guarded claim publication and merge/push operations; defaults to repo root in both `start.sh` and `agent-loop.sh`, and must be a valid git worktree
 - `ORCA_WITH_LOCK_PATH`: absolute path to lock helper passed to agents; defaults to `<repo-root>/with-lock.sh` in both `start.sh` and `agent-loop.sh`, and must be executable
 - `ORCA_QUEUE_WRITE_MAIN_PATH`: absolute path to queue mutation helper passed to agents (default `<repo-root>/queue-write-main.sh`)

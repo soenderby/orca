@@ -39,6 +39,8 @@ ORCA_LOCK_SCOPE="${ORCA_LOCK_SCOPE:-merge}"
 ORCA_LOCK_TIMEOUT_SECONDS="${ORCA_LOCK_TIMEOUT_SECONDS:-120}"
 ORCA_NO_WORK_DRAIN_MODE="${ORCA_NO_WORK_DRAIN_MODE:-drain}"
 ORCA_NO_WORK_RETRY_LIMIT="${ORCA_NO_WORK_RETRY_LIMIT:-1}"
+ORCA_MODE_ID="${ORCA_MODE_ID:-}"
+ORCA_WORK_APPROACH_FILE="${ORCA_WORK_APPROACH_FILE:-}"
 AGENT_LOG_ROOT="${ROOT}/agent-logs"
 SESSION_LOG_ROOT="${AGENT_LOG_ROOT}/sessions"
 
@@ -164,6 +166,9 @@ RUN_SUMMARY_SCHEMA_REASON_CODES=""
 RUN_TOKENS_USED=""
 RUN_TOKENS_PARSE_STATUS="missing"
 RUN_BRANCH_NAME=""
+RUN_MODE_ID=""
+RUN_APPROACH_SOURCE=""
+RUN_APPROACH_SHA256=""
 
 log() {
   local line
@@ -178,6 +183,44 @@ log() {
 
 now_epoch() {
   date +%s
+}
+
+sha256_file() {
+  local path="$1"
+
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "${path}" | awk '{print $1}'
+    return 0
+  fi
+
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "${path}" | awk '{print $1}'
+    return 0
+  fi
+
+  return 1
+}
+
+refresh_mode_approach_attribution() {
+  RUN_MODE_ID="${ORCA_MODE_ID}"
+  RUN_APPROACH_SOURCE="${ORCA_WORK_APPROACH_FILE}"
+  RUN_APPROACH_SHA256=""
+
+  if [[ -z "${RUN_APPROACH_SOURCE}" ]]; then
+    return
+  fi
+
+  if [[ ! -r "${RUN_APPROACH_SOURCE}" ]]; then
+    log "warning: ORCA_WORK_APPROACH_FILE is set but unreadable: ${RUN_APPROACH_SOURCE}"
+    return
+  fi
+
+  if RUN_APPROACH_SHA256="$(sha256_file "${RUN_APPROACH_SOURCE}")"; then
+    return
+  fi
+
+  log "warning: could not compute SHA256 for approach file (sha256sum/shasum unavailable): ${RUN_APPROACH_SOURCE}"
+  RUN_APPROACH_SHA256=""
 }
 
 start_run_artifacts() {
@@ -212,6 +255,9 @@ start_run_artifacts() {
   RUN_TOKENS_USED=""
   RUN_TOKENS_PARSE_STATUS="missing"
   RUN_BRANCH_NAME=""
+  RUN_MODE_ID=""
+  RUN_APPROACH_SOURCE=""
+  RUN_APPROACH_SHA256=""
 
   log "starting run ${RUN_NUMBER}"
   log "session id: ${AGENT_SESSION_ID}"
@@ -223,6 +269,8 @@ start_run_artifacts() {
   log "queue write helper path: ${QUEUE_WRITE_HELPER_PATH}"
   log "merge helper path: ${MERGE_HELPER_PATH}"
   log "harness version: ${HARNESS_VERSION}"
+  refresh_mode_approach_attribution
+  log "mode attribution: mode_id=${RUN_MODE_ID:-none} approach_source=${RUN_APPROACH_SOURCE:-none} approach_sha256=${RUN_APPROACH_SHA256:-none}"
 }
 
 select_run_base_ref() {
@@ -620,6 +668,9 @@ write_run_summary_markdown() {
       echo "- Summary Discovery IDs: ${RUN_SUMMARY_DISCOVERY_IDS}"
     fi
     echo "- Tokens Used: ${RUN_TOKENS_USED:-n/a} (${RUN_TOKENS_PARSE_STATUS})"
+    echo "- Mode ID: ${RUN_MODE_ID:-none}"
+    echo "- Approach Source: ${RUN_APPROACH_SOURCE:-none}"
+    echo "- Approach SHA256: ${RUN_APPROACH_SHA256:-none}"
     echo
     echo "## Artifacts"
     echo "- Run Log: ${LOGFILE}"
@@ -665,6 +716,9 @@ append_metrics_jsonl() {
     --arg summary_schema_status "${RUN_SUMMARY_SCHEMA_STATUS}" \
     --arg summary_schema_reason_codes_csv "${RUN_SUMMARY_SCHEMA_REASON_CODES}" \
     --arg tokens_parse_status "${RUN_TOKENS_PARSE_STATUS}" \
+    --arg mode_id "${RUN_MODE_ID}" \
+    --arg approach_source "${RUN_APPROACH_SOURCE}" \
+    --arg approach_sha256 "${RUN_APPROACH_SHA256}" \
     --arg harness_version "${HARNESS_VERSION}" \
     --arg run_log "${LOGFILE}" \
     --arg summary_json "${SUMMARY_JSON_FILE}" \
@@ -684,6 +738,9 @@ append_metrics_jsonl() {
       result: $result,
       reason: $reason,
       issue_id: (if ($issue | length) > 0 then $issue else null end),
+      mode_id: (if ($mode_id | length) > 0 then $mode_id else null end),
+      approach_source: (if ($approach_source | length) > 0 then $approach_source else null end),
+      approach_sha256: (if ($approach_sha256 | length) > 0 then $approach_sha256 else null end),
       durations_seconds: {
         iteration_total: $duration_seconds
       },
@@ -805,6 +862,8 @@ log "agent lock helper: ${LOCK_HELPER_PATH}"
 log "agent queue write helper: ${QUEUE_WRITE_HELPER_PATH}"
 log "agent merge helper: ${MERGE_HELPER_PATH}"
 log "no_work drain mode: ${ORCA_NO_WORK_DRAIN_MODE} (retry limit: ${ORCA_NO_WORK_RETRY_LIMIT})"
+refresh_mode_approach_attribution
+log "configured mode attribution: mode_id=${RUN_MODE_ID:-none} approach_source=${RUN_APPROACH_SOURCE:-none} approach_sha256=${RUN_APPROACH_SHA256:-none}"
 log "harness version: ${HARNESS_VERSION}"
 if ! validate_explicit_base_ref; then
   exit 1

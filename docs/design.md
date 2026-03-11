@@ -55,3 +55,14 @@ The exception: when correctness (principle 2) or observability (principle 5) is 
 ### 7. The system improves through use, not through planning
 
 Design documents that are not motivated by observed problems in real runs are speculative. Run the system, observe what fails, fix what matters. Planning is valuable when it processes evidence; it is waste when it precedes evidence.
+
+### 8. Design for model and agent improvement: bind outcomes, not current-model tactics
+
+Orca should not fossilize around the weaknesses or quirks of any specific model version. Encode stable objectives, invariants, and evidence requirements — not brittle step-by-step behaviors tuned to one generation of agents.
+
+Implications:
+- Prefer principle-level directives over rigid procedural scripts.
+- Treat operational heuristics as temporary defaults, not permanent truth.
+- Require agents to challenge stale instructions when they conflict with goals, correctness, or evidence.
+- Allow autonomous deviation from default heuristics when an agent can achieve objectives better, but require explicit rationale in run artifacts.
+- Periodically retire workaround rules that no longer provide value as models improve.

@@ -32,6 +32,8 @@ Complete exactly one issue end-to-end in this run, or return `no_work`.
    - `br sync --import-only`
 2. Pick candidate work:
    - `br ready --json`
+   - prefer highest-priority ready issues first
+   - if you intentionally pick a lower-priority issue, explain why in summary `notes`
    - inspect with `br show <id> --json` and `br dep list <id> --json`
 3. Claim + publish claim on `main`:
 

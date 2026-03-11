@@ -5,9 +5,12 @@ Primary repo path: __PRIMARY_REPO__
 Lock helper path: __WITH_LOCK_PATH__
 Queue-write helper path: __QUEUE_WRITE_MAIN_PATH__
 Merge helper path: __MERGE_MAIN_PATH__
+Assignment mode: __ASSIGNMENT_MODE__
+Assigned issue id: __ASSIGNED_ISSUE_ID__
 Run summary JSON path: __SUMMARY_JSON_PATH__
 
-Complete exactly one issue end-to-end in this run, or return `no_work`.
+When assignment mode is `assigned`, complete exactly the assigned issue end-to-end in this run (or return explicit `blocked`/`no_work` for that assigned issue).
+When assignment mode is `self-select`, complete exactly one issue end-to-end in this run, or return `no_work`.
 
 ## Default Operating Protocol
 
@@ -30,7 +33,8 @@ Complete exactly one issue end-to-end in this run, or return `no_work`.
 1. Refresh queue view in your worktree:
    - `br sync --import-only`
 2. Pick candidate work:
-   - `br ready --json`
+   - if `Assigned issue id` is non-empty: use that issue only (skip `br ready --json` selection)
+   - if `Assigned issue id` is empty: use `br ready --json` and select from ready issues
    - prefer highest-priority ready issues first
    - if you intentionally pick a lower-priority issue, explain why in summary `notes`
    - inspect with `br show <id> --json` and `br dep list <id> --json`
@@ -119,6 +123,7 @@ Rules:
 3. Use `result=no_work` when queue is effectively empty/unusable.
 4. Use `loop_action=stop` only when explicitly stopping the outer loop.
 5. If you intentionally deviate from protocol, explain why in `notes`.
+6. When `Assigned issue id` is non-empty, `summary.issue_id` must exactly equal that assigned issue id.
 
 ## End-of-Run Checklist
 

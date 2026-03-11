@@ -137,10 +137,10 @@ Agent does:
 
 1. choose issues and publish claims via `ORCA_QUEUE_WRITE_MAIN_PATH`
 2. implement and validate
-3. update issue states/notes/discovery items via `ORCA_QUEUE_WRITE_MAIN_PATH`
+3. update issue states/notes/follow-up issues via `ORCA_QUEUE_WRITE_MAIN_PATH`
 4. merge/push via `ORCA_MERGE_MAIN_PATH`
 5. close issues via `ORCA_QUEUE_WRITE_MAIN_PATH`
-6. record discoveries and summary JSON
+6. create follow-up issues when needed and write summary JSON
 
 Orca injects `ORCA_WITH_LOCK_PATH`, `ORCA_PRIMARY_REPO`, `ORCA_LOCK_SCOPE`, `ORCA_LOCK_TIMEOUT_SECONDS`, `ORCA_QUEUE_WRITE_MAIN_PATH`, `ORCA_MERGE_MAIN_PATH`, `ORCA_BASE_REF`, `ORCA_NO_WORK_DRAIN_MODE`, and `ORCA_NO_WORK_RETRY_LIMIT` into each run so helper scripts can use stable absolute paths.
 `ORCA_PRIMARY_REPO` defaults to repo root and must be a valid git worktree; `ORCA_WITH_LOCK_PATH` defaults to `<repo-root>/with-lock.sh` and must be executable.

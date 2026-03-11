@@ -129,12 +129,9 @@ SESSION_DIR="${SESSION_LOG_ROOT}/${SESSION_DATE_PATH}/${AGENT_SESSION_ID}"
 SESSION_RUNS_DIR="${SESSION_DIR}/runs"
 SESSION_LOGFILE="${SESSION_DIR}/session.log"
 METRICS_FILE="${AGENT_LOG_ROOT}/metrics.jsonl"
-DISCOVERY_LOG_DIR="${AGENT_LOG_ROOT}/discoveries"
-DISCOVERY_LOG_FILE="${DISCOVERY_LOG_DIR}/${AGENT_NAME}.md"
-mkdir -p "${SESSION_RUNS_DIR}" "${DISCOVERY_LOG_DIR}"
+mkdir -p "${SESSION_RUNS_DIR}"
 : > "${SESSION_LOGFILE}"
 touch "${METRICS_FILE}"
-touch "${DISCOVERY_LOG_FILE}"
 
 runs_completed=0
 cleanup_in_progress=0
@@ -221,7 +218,6 @@ start_run_artifacts() {
   log "worktree: ${WORKTREE}"
   log "run log: ${LOGFILE}"
   log "summary json path: ${SUMMARY_JSON_FILE}"
-  log "discovery log path: ${DISCOVERY_LOG_FILE}"
   log "primary repo path: ${PRIMARY_REPO}"
   log "lock helper path: ${LOCK_HELPER_PATH}"
   log "queue write helper path: ${QUEUE_WRITE_HELPER_PATH}"
@@ -384,8 +380,6 @@ write_prompt_file() {
   prompt_text="${prompt_text//__RUN_SUMMARY_PATH__/${SUMMARY_JSON_FILE}}"
   prompt_text="${prompt_text//__RUN_SUMMARY_JSON__/${SUMMARY_JSON_FILE}}"
   prompt_text="${prompt_text//__SUMMARY_JSON_PATH__/${SUMMARY_JSON_FILE}}"
-  prompt_text="${prompt_text//__DISCOVERY_LOG_PATH__/${DISCOVERY_LOG_FILE}}"
-  prompt_text="${prompt_text//__AGENT_DISCOVERY_LOG_PATH__/${DISCOVERY_LOG_FILE}}"
   prompt_text="${prompt_text//__PRIMARY_REPO__/${PRIMARY_REPO}}"
   prompt_text="${prompt_text//__ORCA_PRIMARY_REPO__/${PRIMARY_REPO}}"
   prompt_text="${prompt_text//__WITH_LOCK_PATH__/${LOCK_HELPER_PATH}}"
@@ -505,11 +499,9 @@ validate_summary_json_schema() {
       + (if (has("issue_status") and (.issue_status | type == "string")) then [] else (if has("issue_status") then ["type:issue_status"] else [] end) end)
       + (if has("merged") then [] else ["missing:merged"] end)
       + (if (has("merged") and (.merged | type == "boolean")) then [] else (if has("merged") then ["type:merged"] else [] end) end)
-      + (if has("discovery_ids") then [] else ["missing:discovery_ids"] end)
-      + (if (has("discovery_ids") and (.discovery_ids | type == "array")) then [] else (if has("discovery_ids") then ["type:discovery_ids"] else [] end) end)
-      + (if (has("discovery_ids") and (.discovery_ids | type == "array") and ([.discovery_ids[] | (type == "string")] | all)) then [] else (if has("discovery_ids") then ["type:discovery_ids_items"] else [] end) end)
-      + (if has("discovery_count") then [] else ["missing:discovery_count"] end)
-      + (if (has("discovery_count") and (.discovery_count | type == "number") and ((.discovery_count | floor) == .discovery_count)) then [] else (if has("discovery_count") then ["type:discovery_count"] else [] end) end)
+      + (if (has("discovery_ids") and (.discovery_ids | type != "array")) then ["type:discovery_ids"] else [] end)
+      + (if (has("discovery_ids") and (.discovery_ids | type == "array") and ([.discovery_ids[] | (type == "string")] | all | not)) then ["type:discovery_ids_items"] else [] end)
+      + (if (has("discovery_count") and ((.discovery_count | type != "number") or ((.discovery_count | floor) != .discovery_count))) then ["type:discovery_count"] else [] end)
       + (if ((has("discovery_count") and has("discovery_ids") and (.discovery_count | type == "number") and ((.discovery_count | floor) == .discovery_count) and (.discovery_ids | type == "array")) | not) then [] else (if (.discovery_count == (.discovery_ids | length)) then [] else ["mismatch:discovery_count"] end) end)
       + (if has("loop_action") then [] else ["missing:loop_action"] end)
       + (if (has("loop_action") and (.loop_action | type == "string")) then [] else (if has("loop_action") then ["type:loop_action"] else [] end) end)
@@ -678,7 +670,6 @@ append_metrics_jsonl() {
     --arg summary_json "${SUMMARY_JSON_FILE}" \
     --arg summary_markdown "${SUMMARY_FILE}" \
     --arg last_message "${LAST_MESSAGE_FILE}" \
-    --arg discovery_log "${DISCOVERY_LOG_FILE}" \
     --argjson run_number "${RUN_NUMBER}" \
     --argjson exit_code "${RUN_EXIT_CODE}" \
     --argjson duration_seconds "${RUN_DURATION_SECONDS}" \
@@ -732,8 +723,7 @@ append_metrics_jsonl() {
         run_log: $run_log,
         summary_json: $summary_json,
         summary_markdown: $summary_markdown,
-        agent_last_message: $last_message,
-        discovery_log: $discovery_log
+        agent_last_message: $last_message
       }
     }' >> "${METRICS_FILE}"
 }
@@ -810,7 +800,6 @@ cd "${WORKTREE}"
 
 log "starting loop in ${WORKTREE}"
 log "session id: ${AGENT_SESSION_ID}"
-log "agent discovery log: ${DISCOVERY_LOG_FILE}"
 log "agent primary repo: ${PRIMARY_REPO}"
 log "agent lock helper: ${LOCK_HELPER_PATH}"
 log "agent queue write helper: ${QUEUE_WRITE_HELPER_PATH}"
@@ -863,8 +852,6 @@ while true; do
     ORCA_RUN_NUMBER="${RUN_NUMBER}" \
     ORCA_SESSION_ID="${AGENT_SESSION_ID}" \
     ORCA_AGENT_NAME="${AGENT_NAME}" \
-    ORCA_DISCOVERY_LOG_PATH="${DISCOVERY_LOG_FILE}" \
-    ORCA_AGENT_DISCOVERY_LOG_PATH="${DISCOVERY_LOG_FILE}" \
     ORCA_PRIMARY_REPO="${PRIMARY_REPO}" \
     ORCA_WITH_LOCK_PATH="${LOCK_HELPER_PATH}" \
     ORCA_QUEUE_WRITE_MAIN_PATH="${QUEUE_WRITE_HELPER_PATH}" \

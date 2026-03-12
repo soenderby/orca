@@ -241,7 +241,7 @@ Behavior:
 8. assigned mode uses `plan.sh` (deterministic, metadata-driven) to select assignments up to launch capacity; plan artifacts are written under `agent-logs/plans/YYYY/MM/DD/`
 9. explicit override `ORCA_ASSIGNMENT_MODE=self-select` restores unassigned self-selection behavior for recovery/debugging
 10. in `self-select`, `ORCA_FORCE_COUNT=1` bypasses launch capping and launches all requested non-running sessions
-11. logs launch planning and summary counts (`requested`, `running`, `ready`, `launchable/launched`, `force_count`, `assignment_mode`)
+11. logs launch planning and summary counts (`requested`, `running`, `ready`, `launchable/launched`, `force_count`, `assignment_mode`) plus assignment-plan details (per-slot issue IDs and held/skipped reason codes)
 12. refuses to launch sessions when a non-running agent worktree is dirty, with per-path status output
 
 ### `agent-loop.sh`

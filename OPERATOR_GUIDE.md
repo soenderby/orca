@@ -54,19 +54,20 @@ Also ensure:
 For guided setup on Ubuntu/WSL:
 
 ```bash
+./orca.sh doctor
 ./orca.sh bootstrap --yes
-./orca.sh bootstrap --yes --dry-run
+./orca.sh doctor
 ```
 
-Run a preflight before first launch (or after environment changes):
+For a non-mutating preview:
 
 ```bash
-./orca.sh doctor
-./orca.sh doctor --json
+./orca.sh bootstrap --yes --dry-run
 ```
 
 `doctor` is read-only and returns a non-zero exit code only for hard requirement failures.
 `bootstrap` is mutating unless `--dry-run`; it fails hard when Codex authentication is still required.
+See `docs/setup.md` for the full onboarding procedure, manual auth/path steps, and troubleshooting map by doctor check ID.
 
 ## Queue Sync and Concurrency Model
 

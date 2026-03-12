@@ -53,12 +53,23 @@ NON_REPO_JSON="${TMP_DIR}/doctor-non-repo.json"
 if (cd "${TMP_DIR}" && bash "${ROOT}/doctor.sh" --json > "${NON_REPO_JSON}"); then
   echo "doctor should fail outside a git worktree" >&2
   exit 1
+else
+  non_repo_exit=$?
+fi
+
+if [[ "${non_repo_exit}" -ne 1 ]]; then
+  echo "doctor should exit 1 when hard-fail checks are present (got ${non_repo_exit})" >&2
+  exit 1
 fi
 
 jq -e '
   .ok == false
   and .summary.hard_fail > 0
   and ([.checks[] | select(.id == "repo.git_worktree")][0].status == "fail")
+  and ([.checks[] | select(.id == "repo.git_worktree")][0].hard_requirement == true)
+  and ([.checks[] | select(.id == "repo.git_worktree")][0].remediation.summary | length > 0)
+  and (([.checks[] | select(.id == "repo.git_worktree")][0].remediation.commands | index("cd /path/to/orca")) != null)
+  and (([.checks[] | select(.id == "repo.git_worktree")][0].remediation.commands | map(test("orca\\.sh doctor")) | any))
 ' "${NON_REPO_JSON}" >/dev/null
 
 echo "doctor json contract regression passed"

@@ -9,6 +9,10 @@ This keeps the long-term architecture stable:
 - agents own reasoning
 - hard constraints stay minimal and focused on shared/irreversible boundaries
 
+Assignment-first planning is the baseline architecture for launch/claim behavior.
+`execute|explore` profiles and approach snippets are optional overlays and must not
+weaken assignment invariants.
+
 ## Long-Term Stance
 
 1. Default to agent autonomy.
@@ -90,8 +94,8 @@ Run at least 10+ comparable issues per profile before changing defaults.
 
 ## Rollout Plan
 
-1. Add observability plumbing (mode + approach attribution).
-2. Add queue-aware start capping (transport efficiency).
-3. Add optional approach snippet injection.
+1. Keep assignment-first planner flow as the default launch architecture.
+2. Keep observability attribution for assignment/mode/approach in run artifacts.
+3. Add optional approach snippet injection (advisory only).
 4. Add `execute|explore` mode selector as default bundles with explicit override semantics.
-5. Keep/remove defaults based on measured results.
+5. Run comparative experiments and keep/tune/remove defaults based on measured results.

@@ -14,6 +14,7 @@ Use Orca when you want to:
 
 See `docs/design.md` for Orca's design principles and architectural constraints.
 See `docs/operating-modes.md` for the proposed `execute|explore` profile model and experiment plan.
+Mode/approach profile work is sequenced as optional overlays after the assignment-first planner baseline; it does not alter assignment/claim invariants.
 
 Current operating stance: autonomy with explicit protocol guidance (Option C; see `docs/decision-log.md`, DL-001). Operators should monitor protocol deviations through run artifacts and escalate to stronger enforcement only when violations become costly or frequent.
 

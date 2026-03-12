@@ -117,7 +117,7 @@ Authoring guidance:
 
 `orca start` validates the local `br` workspace (`.beads/`) and fails fast when the queue workspace is missing/unhealthy or a non-running agent worktree is dirty.
 In default `assigned` mode, `start.sh` calls `plan.sh` to deterministically select launch assignments using queue labels (`px:exclusive`, `ck:*`) and writes an audit artifact under `agent-logs/plans/YYYY/MM/DD/`.
-Launch logs include planned per-session issue IDs and held/skipped reason codes from the planner, so reduced launch counts are explainable from a single run log.
+Launch logs include planned per-session issue IDs, held/skipped reason codes, and per-issue planner decisions, so reduced launch counts are explainable from a single run log.
 Default no-work behavior is drain mode: after a small retry budget for transient races, loops stop on sustained `no_work`.
 Use `--watch` to keep polling on `no_work` instead.
 

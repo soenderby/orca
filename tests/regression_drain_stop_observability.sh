@@ -40,6 +40,7 @@ AGENT_COMMAND="${FAKE_AGENT}" \
 MAX_RUNS=5 \
 RUN_SLEEP_SECONDS=0 \
 ORCA_ASSIGNMENT_MODE="self-select" \
+ORCA_ASSIGNED_ISSUE_ID="" \
 ORCA_NO_WORK_DRAIN_MODE="drain" \
 ORCA_NO_WORK_RETRY_LIMIT=0 \
 ORCA_PRIMARY_REPO="${ROOT}" \
@@ -72,12 +73,18 @@ jq -e \
   'select(.session_id == $session and .run_number == 1)
    | .summary.loop_action == "stop"
    and .summary.loop_action_reason == $reason
+   and (.planned_assigned_issue == null)
+   and .assignment_source == "self-select"
+   and .assignment_outcome == "unassigned"
    and has("mode_id")
    and has("approach_source")
    and has("approach_sha256")
    and (.mode_id == null)
    and (.approach_source == null)
-   and (.approach_sha256 == null)' \
+   and (.approach_sha256 == null)
+   and (.summary.planned_assigned_issue == null)
+   and (.summary.assignment_source == "self-select")
+   and (.summary.assignment_outcome == "unassigned")' \
   "${ROOT}/agent-logs/metrics.jsonl" >/dev/null
 
 grep -F -- "configured mode attribution: mode_id=none approach_source=none approach_sha256=none" "${SESSION_LOG}" >/dev/null

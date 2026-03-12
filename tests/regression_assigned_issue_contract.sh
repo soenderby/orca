@@ -64,6 +64,9 @@ grep -F -- "mismatch:assigned_issue_id" "${SUMMARY_MD}" >/dev/null
 grep -F -- "- Assigned Issue: ${ASSIGNED_ISSUE_ID}" "${SUMMARY_MD}" >/dev/null
 grep -F -- "- Issue: ${ACTUAL_ISSUE_ID}" "${SUMMARY_MD}" >/dev/null
 grep -F -- "- Assigned Issue Match: false" "${SUMMARY_MD}" >/dev/null
+grep -F -- "- Planned Assigned Issue: ${ASSIGNED_ISSUE_ID}" "${SUMMARY_MD}" >/dev/null
+grep -F -- "- Assignment Source: planner" "${SUMMARY_MD}" >/dev/null
+grep -F -- "- Assignment Outcome: mismatch" "${SUMMARY_MD}" >/dev/null
 
 jq -e \
   --arg session "${SESSION_ID}" \
@@ -72,10 +75,16 @@ jq -e \
   'select(.session_id == $session and .run_number == 1)
    | .result == "failed"
    and .assigned_issue_id == $assigned
+   and .planned_assigned_issue == $assigned
+   and .assignment_source == "planner"
+   and .assignment_outcome == "mismatch"
    and .issue_id == $actual
    and .summary_schema_status == "invalid"
    and (.summary_schema_reason_codes | index("mismatch:assigned_issue_id") != null)
-   and .summary.assignment_match == false' \
+   and .summary.assignment_match == false
+   and .summary.planned_assigned_issue == $assigned
+   and .summary.assignment_source == "planner"
+   and .summary.assignment_outcome == "mismatch"' \
   "${ROOT}/agent-logs/metrics.jsonl" >/dev/null
 
 echo "assigned issue contract regression passed"

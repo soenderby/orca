@@ -182,6 +182,9 @@ RUN_SUMMARY_SCHEMA_STATUS="not_checked"
 RUN_SUMMARY_SCHEMA_REASON_CODES=""
 RUN_SUMMARY_ASSIGNED_ISSUE_ID="${ORCA_ASSIGNED_ISSUE_ID}"
 RUN_SUMMARY_ASSIGNMENT_MATCH=""
+RUN_SUMMARY_PLANNED_ASSIGNED_ISSUE="${ORCA_ASSIGNED_ISSUE_ID}"
+RUN_SUMMARY_ASSIGNMENT_SOURCE=""
+RUN_SUMMARY_ASSIGNMENT_OUTCOME=""
 RUN_TOKENS_USED=""
 RUN_TOKENS_PARSE_STATUS="missing"
 RUN_BRANCH_NAME=""
@@ -242,6 +245,27 @@ refresh_mode_approach_attribution() {
   RUN_APPROACH_SHA256=""
 }
 
+refresh_assignment_observability() {
+  RUN_SUMMARY_PLANNED_ASSIGNED_ISSUE="${ORCA_ASSIGNED_ISSUE_ID}"
+  RUN_SUMMARY_ASSIGNMENT_MATCH=""
+  RUN_SUMMARY_ASSIGNMENT_SOURCE="self-select"
+  RUN_SUMMARY_ASSIGNMENT_OUTCOME="unassigned"
+
+  if [[ "${ORCA_ASSIGNMENT_MODE}" == "assigned" ]]; then
+    RUN_SUMMARY_ASSIGNMENT_SOURCE="planner"
+  fi
+
+  if [[ -n "${ORCA_ASSIGNED_ISSUE_ID}" ]]; then
+    RUN_SUMMARY_ASSIGNMENT_OUTCOME="mismatch"
+    if [[ -n "${RUN_SUMMARY_ISSUE_ID}" && "${RUN_SUMMARY_ISSUE_ID}" == "${ORCA_ASSIGNED_ISSUE_ID}" ]]; then
+      RUN_SUMMARY_ASSIGNMENT_MATCH="true"
+      RUN_SUMMARY_ASSIGNMENT_OUTCOME="matched"
+    else
+      RUN_SUMMARY_ASSIGNMENT_MATCH="false"
+    fi
+  fi
+}
+
 start_run_artifacts() {
   RUN_NUMBER=$((runs_completed + 1))
   RUN_TIMESTAMP="$(date -u +%Y%m%dT%H%M%S%NZ)"
@@ -273,12 +297,16 @@ start_run_artifacts() {
   RUN_SUMMARY_SCHEMA_REASON_CODES=""
   RUN_SUMMARY_ASSIGNED_ISSUE_ID="${ORCA_ASSIGNED_ISSUE_ID}"
   RUN_SUMMARY_ASSIGNMENT_MATCH=""
+  RUN_SUMMARY_PLANNED_ASSIGNED_ISSUE="${ORCA_ASSIGNED_ISSUE_ID}"
+  RUN_SUMMARY_ASSIGNMENT_SOURCE=""
+  RUN_SUMMARY_ASSIGNMENT_OUTCOME=""
   RUN_TOKENS_USED=""
   RUN_TOKENS_PARSE_STATUS="missing"
   RUN_BRANCH_NAME=""
   RUN_MODE_ID=""
   RUN_APPROACH_SOURCE=""
   RUN_APPROACH_SHA256=""
+  refresh_assignment_observability
 
   log "starting run ${RUN_NUMBER}"
   log "session id: ${AGENT_SESSION_ID}"
@@ -505,6 +533,11 @@ parse_summary_json_if_present() {
   RUN_SUMMARY_DISCOVERY_IDS=""
   RUN_SUMMARY_SCHEMA_STATUS="not_checked"
   RUN_SUMMARY_SCHEMA_REASON_CODES=""
+  RUN_SUMMARY_ASSIGNMENT_MATCH=""
+  RUN_SUMMARY_PLANNED_ASSIGNED_ISSUE="${ORCA_ASSIGNED_ISSUE_ID}"
+  RUN_SUMMARY_ASSIGNMENT_SOURCE=""
+  RUN_SUMMARY_ASSIGNMENT_OUTCOME=""
+  refresh_assignment_observability
 
   if [[ ! -s "${SUMMARY_JSON_FILE}" ]]; then
     return
@@ -542,13 +575,7 @@ parse_summary_json_if_present() {
       ""
     end
   ' "${SUMMARY_JSON_FILE}")"
-  if [[ -n "${ORCA_ASSIGNED_ISSUE_ID}" ]]; then
-    if [[ "${RUN_SUMMARY_ISSUE_ID}" == "${ORCA_ASSIGNED_ISSUE_ID}" ]]; then
-      RUN_SUMMARY_ASSIGNMENT_MATCH="true"
-    else
-      RUN_SUMMARY_ASSIGNMENT_MATCH="false"
-    fi
-  fi
+  refresh_assignment_observability
 
   validate_summary_json_schema
   if [[ "${RUN_SUMMARY_SCHEMA_STATUS}" == "invalid" ]]; then
@@ -694,6 +721,15 @@ write_run_summary_markdown() {
         echo "- Assigned Issue Match: ${RUN_SUMMARY_ASSIGNMENT_MATCH}"
       fi
     fi
+    if [[ -n "${RUN_SUMMARY_PLANNED_ASSIGNED_ISSUE}" ]]; then
+      echo "- Planned Assigned Issue: ${RUN_SUMMARY_PLANNED_ASSIGNED_ISSUE}"
+    fi
+    if [[ -n "${RUN_SUMMARY_ASSIGNMENT_SOURCE}" ]]; then
+      echo "- Assignment Source: ${RUN_SUMMARY_ASSIGNMENT_SOURCE}"
+    fi
+    if [[ -n "${RUN_SUMMARY_ASSIGNMENT_OUTCOME}" ]]; then
+      echo "- Assignment Outcome: ${RUN_SUMMARY_ASSIGNMENT_OUTCOME}"
+    fi
     if [[ -n "${RUN_SUMMARY_RESULT}" ]]; then
       echo "- Summary Result: ${RUN_SUMMARY_RESULT}"
     fi
@@ -755,6 +791,9 @@ append_metrics_jsonl() {
     --arg summary_discovery_count "${RUN_SUMMARY_DISCOVERY_COUNT}" \
     --arg summary_discovery_ids_csv "${RUN_SUMMARY_DISCOVERY_IDS}" \
     --arg assigned_issue_id "${RUN_SUMMARY_ASSIGNED_ISSUE_ID}" \
+    --arg planned_assigned_issue "${RUN_SUMMARY_PLANNED_ASSIGNED_ISSUE}" \
+    --arg assignment_source "${RUN_SUMMARY_ASSIGNMENT_SOURCE}" \
+    --arg assignment_outcome "${RUN_SUMMARY_ASSIGNMENT_OUTCOME}" \
     --arg summary_assignment_match "${RUN_SUMMARY_ASSIGNMENT_MATCH}" \
     --arg summary_parse_status "${RUN_SUMMARY_PARSE_STATUS}" \
     --arg summary_schema_status "${RUN_SUMMARY_SCHEMA_STATUS}" \
@@ -782,6 +821,9 @@ append_metrics_jsonl() {
       result: $result,
       reason: $reason,
       assigned_issue_id: (if ($assigned_issue_id | length) > 0 then $assigned_issue_id else null end),
+      planned_assigned_issue: (if ($planned_assigned_issue | length) > 0 then $planned_assigned_issue else null end),
+      assignment_source: (if ($assignment_source | length) > 0 then $assignment_source else null end),
+      assignment_outcome: (if ($assignment_outcome | length) > 0 then $assignment_outcome else null end),
       issue_id: (if ($issue | length) > 0 then $issue else null end),
       mode_id: (if ($mode_id | length) > 0 then $mode_id else null end),
       approach_source: (if ($approach_source | length) > 0 then $approach_source else null end),
@@ -823,6 +865,21 @@ append_metrics_jsonl() {
           elif $summary_assignment_match == "true" then true
           elif $summary_assignment_match == "false" then false
           else $summary_assignment_match
+          end
+        ),
+        planned_assigned_issue: (
+          if ($planned_assigned_issue | length) > 0 then $planned_assigned_issue
+          else null
+          end
+        ),
+        assignment_source: (
+          if ($assignment_source | length) > 0 then $assignment_source
+          else null
+          end
+        ),
+        assignment_outcome: (
+          if ($assignment_outcome | length) > 0 then $assignment_outcome
+          else null
           end
         ),
         loop_action: $loop_action,

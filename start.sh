@@ -448,6 +448,10 @@ if [[ "${ORCA_ASSIGNMENT_MODE}" == "assigned" && "${launch_limit}" -gt 0 ]]; the
     [[ -z "${held_line}" ]] && continue
     echo "[start] assignment held: ${held_line}"
   done < <(jq -r '.held[] | "issue=\(.issue_id) reason=\(.reason_code)\(if has("conflict_key") then " conflict_key=\(.conflict_key)" else "" end)"' <<< "${assignment_plan_json}")
+  while IFS= read -r decision_line; do
+    [[ -z "${decision_line}" ]] && continue
+    echo "[start] assignment decision: ${decision_line}"
+  done < <(jq -r '.decisions[] | "issue=\(.issue_id) action=\(.action) reason=\(.reason_code)\(if has("conflict_key") then " conflict_key=\(.conflict_key)" else "" end)"' <<< "${assignment_plan_json}")
   if [[ "${launch_limit}" -lt "${requested_assignment_slots}" ]]; then
     plan_held_summary="$(jq -r '[.held[].reason_code] | group_by(.) | map("\(.[0])=\(length)") | join(",")' <<< "${assignment_plan_json}")"
     if [[ -z "${plan_held_summary}" ]]; then

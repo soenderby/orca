@@ -7,6 +7,9 @@ READY_JSON="${TMP_DIR}/ready.json"
 ISSUES_JSONL="${TMP_DIR}/issues.jsonl"
 PLAN_ONE="${TMP_DIR}/plan-one.json"
 PLAN_TWO="${TMP_DIR}/plan-two.json"
+READY_EXCLUSIVE_JSON="${TMP_DIR}/ready-exclusive.json"
+ISSUES_EXCLUSIVE_JSONL="${TMP_DIR}/issues-exclusive.jsonl"
+PLAN_EXCLUSIVE="${TMP_DIR}/plan-exclusive.json"
 
 cleanup() {
   rm -rf "${TMP_DIR}"
@@ -51,8 +54,37 @@ jq -e '
   and .input.ready_count == 6
   and (.assignments | map(.issue_id) == ["orca-a", "orca-b", "orca-e"])
   and (.held | map(select(.issue_id == "orca-c" and .reason_code == "contention-key-conflict")) | length == 1)
+  and (.held | map(select(.issue_id == "orca-c" and .conflict_key == "queue")) | length == 1)
   and (.held | map(select(.issue_id == "orca-d" and .reason_code == "exclusive-conflict")) | length == 1)
   and (.held | map(select(.issue_id == "orca-f" and .reason_code == "not-enough-slots")) | length == 1)
 ' "${PLAN_ONE}" >/dev/null
+
+cat > "${READY_EXCLUSIVE_JSON}" <<'JSON'
+[
+  { "id": "orca-x", "priority": 1, "created_at": "2026-03-01T00:00:01Z" },
+  { "id": "orca-y", "priority": 2, "created_at": "2026-03-01T00:00:02Z" },
+  { "id": "orca-z", "priority": 3, "created_at": "2026-03-01T00:00:03Z" }
+]
+JSON
+
+cat > "${ISSUES_EXCLUSIVE_JSONL}" <<'JSONL'
+{"id":"orca-x","title":"x","status":"open","priority":1,"labels":["px:exclusive"]}
+{"id":"orca-y","title":"y","status":"open","priority":2,"labels":[]}
+{"id":"orca-z","title":"z","status":"open","priority":3,"labels":["ck:queue"]}
+JSONL
+
+"${ROOT}/plan.sh" \
+  --slots 3 \
+  --ready-json "${READY_EXCLUSIVE_JSON}" \
+  --issues-jsonl "${ISSUES_EXCLUSIVE_JSONL}" > "${PLAN_EXCLUSIVE}"
+
+jq -e '
+  .planner_version == "v1"
+  and .input.slots == 3
+  and .input.ready_count == 3
+  and (.assignments | map(.issue_id) == ["orca-x"])
+  and (.held | map(select(.issue_id == "orca-y" and .reason_code == "exclusive-already-selected")) | length == 1)
+  and (.held | map(select(.issue_id == "orca-z" and .reason_code == "exclusive-already-selected")) | length == 1)
+' "${PLAN_EXCLUSIVE}" >/dev/null
 
 echo "planner v1 regression passed"

@@ -22,7 +22,7 @@ cat > "${TEST_ROOT}/AGENT_PROMPT.md" <<'EOF'
 test prompt
 EOF
 
-for helper in with-lock.sh queue-write-main.sh merge-main.sh; do
+for helper in with-lock.sh queue-write-main.sh merge-main.sh br-guard.sh; do
   cat > "${TEST_ROOT}/${helper}" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -225,6 +225,7 @@ output="$(
   ORCA_WITH_LOCK_PATH="${TEST_ROOT}/with-lock.sh" \
   ORCA_QUEUE_WRITE_MAIN_PATH="${TEST_ROOT}/queue-write-main.sh" \
   ORCA_MERGE_MAIN_PATH="${TEST_ROOT}/merge-main.sh" \
+  ORCA_BR_GUARD_PATH="${TEST_ROOT}/br-guard.sh" \
   bash "${HARNESS_DIR}/start.sh" 2 --runs 1 2>&1
 )"
 

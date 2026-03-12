@@ -41,6 +41,9 @@ ORCA_MODE_ID="${ORCA_MODE_ID:-}"
 ORCA_WORK_APPROACH_FILE="${ORCA_WORK_APPROACH_FILE:-}"
 ORCA_FORCE_COUNT="${ORCA_FORCE_COUNT:-0}"
 ORCA_ASSIGNMENT_MODE="${ORCA_ASSIGNMENT_MODE:-assigned}"
+ORCA_BR_GUARD_MODE="${ORCA_BR_GUARD_MODE:-enforce}"
+ORCA_ALLOW_UNSAFE_BR_MUTATIONS="${ORCA_ALLOW_UNSAFE_BR_MUTATIONS:-0}"
+ORCA_BR_GUARD_PATH="${ORCA_BR_GUARD_PATH:-}"
 ORCA_PRIMARY_REPO="${ORCA_PRIMARY_REPO:-}"
 ORCA_WITH_LOCK_PATH="${ORCA_WITH_LOCK_PATH:-}"
 ORCA_QUEUE_WRITE_MAIN_PATH="${ORCA_QUEUE_WRITE_MAIN_PATH:-}"
@@ -286,6 +289,7 @@ ORCA_PRIMARY_REPO="${ORCA_PRIMARY_REPO:-${ROOT}}"
 ORCA_WITH_LOCK_PATH="${ORCA_WITH_LOCK_PATH:-${ROOT}/with-lock.sh}"
 ORCA_QUEUE_WRITE_MAIN_PATH="${ORCA_QUEUE_WRITE_MAIN_PATH:-${ROOT}/queue-write-main.sh}"
 ORCA_MERGE_MAIN_PATH="${ORCA_MERGE_MAIN_PATH:-${ROOT}/merge-main.sh}"
+ORCA_BR_GUARD_PATH="${ORCA_BR_GUARD_PATH:-${ROOT}/br-guard.sh}"
 
 if ! [[ "${COUNT}" =~ ^[1-9][0-9]*$ ]]; then
   echo "[start] count must be a positive integer: ${COUNT}" >&2
@@ -337,6 +341,16 @@ if ! [[ "${ORCA_FORCE_COUNT}" =~ ^[01]$ ]]; then
   exit 1
 fi
 
+if [[ "${ORCA_BR_GUARD_MODE}" != "enforce" && "${ORCA_BR_GUARD_MODE}" != "off" ]]; then
+  echo "[start] ORCA_BR_GUARD_MODE must be 'enforce' or 'off': ${ORCA_BR_GUARD_MODE}" >&2
+  exit 1
+fi
+
+if ! [[ "${ORCA_ALLOW_UNSAFE_BR_MUTATIONS}" =~ ^[01]$ ]]; then
+  echo "[start] ORCA_ALLOW_UNSAFE_BR_MUTATIONS must be 0 or 1: ${ORCA_ALLOW_UNSAFE_BR_MUTATIONS}" >&2
+  exit 1
+fi
+
 if [[ "${ORCA_ASSIGNMENT_MODE}" != "assigned" && "${ORCA_ASSIGNMENT_MODE}" != "self-select" ]]; then
   echo "[start] ORCA_ASSIGNMENT_MODE must be 'assigned' or 'self-select': ${ORCA_ASSIGNMENT_MODE}" >&2
   exit 1
@@ -382,6 +396,11 @@ fi
 
 if [[ ! -x "${ORCA_MERGE_MAIN_PATH}" ]]; then
   echo "[start] ORCA_MERGE_MAIN_PATH must be executable: ${ORCA_MERGE_MAIN_PATH}" >&2
+  exit 1
+fi
+
+if [[ ! -x "${ORCA_BR_GUARD_PATH}" ]]; then
+  echo "[start] ORCA_BR_GUARD_PATH must be executable: ${ORCA_BR_GUARD_PATH}" >&2
   exit 1
 fi
 
@@ -490,7 +509,7 @@ for i in $(seq 1 "${COUNT}"); do
   fi
 
   echo "[start] launching ${session} in ${worktree}"
-  tmux_cmd="$(printf "cd %q && AGENT_NAME=%q AGENT_SESSION_ID=%q WORKTREE=%q AGENT_MODEL=%q AGENT_REASONING_LEVEL=%q AGENT_COMMAND=%q PROMPT_TEMPLATE=%q MAX_RUNS=%q RUN_SLEEP_SECONDS=%q ORCA_TIMING_METRICS=%q ORCA_COMPACT_SUMMARY=%q ORCA_ASSIGNMENT_MODE=%q ORCA_ASSIGNED_ISSUE_ID=%q ORCA_PRIMARY_REPO=%q ORCA_WITH_LOCK_PATH=%q ORCA_LOCK_SCOPE=%q ORCA_LOCK_TIMEOUT_SECONDS=%q ORCA_NO_WORK_DRAIN_MODE=%q ORCA_NO_WORK_RETRY_LIMIT=%q ORCA_MODE_ID=%q ORCA_WORK_APPROACH_FILE=%q ORCA_QUEUE_WRITE_MAIN_PATH=%q ORCA_MERGE_MAIN_PATH=%q ORCA_BASE_REF=%q %q" \
+  tmux_cmd="$(printf "cd %q && AGENT_NAME=%q AGENT_SESSION_ID=%q WORKTREE=%q AGENT_MODEL=%q AGENT_REASONING_LEVEL=%q AGENT_COMMAND=%q PROMPT_TEMPLATE=%q MAX_RUNS=%q RUN_SLEEP_SECONDS=%q ORCA_TIMING_METRICS=%q ORCA_COMPACT_SUMMARY=%q ORCA_ASSIGNMENT_MODE=%q ORCA_ASSIGNED_ISSUE_ID=%q ORCA_PRIMARY_REPO=%q ORCA_WITH_LOCK_PATH=%q ORCA_LOCK_SCOPE=%q ORCA_LOCK_TIMEOUT_SECONDS=%q ORCA_NO_WORK_DRAIN_MODE=%q ORCA_NO_WORK_RETRY_LIMIT=%q ORCA_MODE_ID=%q ORCA_WORK_APPROACH_FILE=%q ORCA_QUEUE_WRITE_MAIN_PATH=%q ORCA_MERGE_MAIN_PATH=%q ORCA_BR_GUARD_MODE=%q ORCA_ALLOW_UNSAFE_BR_MUTATIONS=%q ORCA_BR_GUARD_PATH=%q ORCA_BASE_REF=%q %q" \
     "${ROOT}" \
     "agent-${i}" \
     "${session_id}" \
@@ -515,6 +534,9 @@ for i in $(seq 1 "${COUNT}"); do
     "${ORCA_WORK_APPROACH_FILE}" \
     "${ORCA_QUEUE_WRITE_MAIN_PATH}" \
     "${ORCA_MERGE_MAIN_PATH}" \
+    "${ORCA_BR_GUARD_MODE}" \
+    "${ORCA_ALLOW_UNSAFE_BR_MUTATIONS}" \
+    "${ORCA_BR_GUARD_PATH}" \
     "${ORCA_BASE_REF}" \
     "${SCRIPT_DIR}/agent-loop.sh")"
   tmux new-session -d -s "${session}" "${tmux_cmd}"

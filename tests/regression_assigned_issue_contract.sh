@@ -5,6 +5,8 @@ ROOT="$(git rev-parse --show-toplevel)"
 TMP_DIR="$(mktemp -d)"
 WORKTREE_DIR="${TMP_DIR}/worktree"
 FAKE_AGENT="${TMP_DIR}/fake-agent.sh"
+FAKE_BIN_DIR="${TMP_DIR}/bin"
+FAKE_BR="${FAKE_BIN_DIR}/br"
 SESSION_ID="assigned-issue-regression-$(date -u +%Y%m%dT%H%M%SZ)-$$"
 ASSIGNED_ISSUE_ID="orca-assigned"
 ACTUAL_ISSUE_ID="orca-other"
@@ -14,6 +16,18 @@ cleanup() {
   rm -rf "${TMP_DIR}"
 }
 trap cleanup EXIT
+
+mkdir -p "${FAKE_BIN_DIR}"
+cat > "${FAKE_BR}" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--version" ]]; then
+  echo "br-test"
+  exit 0
+fi
+exit 0
+EOF
+chmod +x "${FAKE_BR}"
 
 cat > "${FAKE_AGENT}" <<EOF
 #!/usr/bin/env bash
@@ -38,6 +52,7 @@ WORKTREE="${WORKTREE_DIR}" \
 AGENT_NAME="regression-agent" \
 AGENT_SESSION_ID="${SESSION_ID}" \
 AGENT_COMMAND="${FAKE_AGENT}" \
+PATH="${FAKE_BIN_DIR}:${PATH}" \
 MAX_RUNS=1 \
 RUN_SLEEP_SECONDS=0 \
 ORCA_ASSIGNMENT_MODE="assigned" \

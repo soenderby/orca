@@ -28,6 +28,7 @@ LOCK_TIMEOUT_SECONDS="${ORCA_LOCK_TIMEOUT_SECONDS:-120}"
 ACTOR=""
 ACTOR_EXPLICIT=0
 COMMIT_MESSAGE=""
+BR_BINARY="${ORCA_BR_REAL_BIN:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -218,6 +219,37 @@ validate_queue_command() {
 
 validate_queue_command "${ACTOR}" "$@"
 
+resolve_br_binary() {
+  local configured="$1"
+  local resolved=""
+
+  if [[ -n "${configured}" ]]; then
+    if [[ ! -x "${configured}" ]]; then
+      echo "[queue-write-main] ORCA_BR_REAL_BIN is not executable: ${configured}" >&2
+      exit 1
+    fi
+    printf '%s\n' "${configured}"
+    return 0
+  fi
+
+  resolved="$(command -v br || true)"
+  if [[ -z "${resolved}" ]]; then
+    echo "[queue-write-main] br binary is not available on PATH" >&2
+    exit 1
+  fi
+
+  if [[ ! -x "${resolved}" ]]; then
+    echo "[queue-write-main] br binary is not executable: ${resolved}" >&2
+    exit 1
+  fi
+
+  printf '%s\n' "${resolved}"
+}
+
+BR_BINARY="$(resolve_br_binary "${BR_BINARY}")"
+queue_command_with_real_br=("$@")
+queue_command_with_real_br[0]="${BR_BINARY}"
+
 if ! git -C "${PRIMARY_REPO}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo "[queue-write-main] --repo is not a git worktree: ${PRIMARY_REPO}" >&2
   exit 1
@@ -234,7 +266,13 @@ fi
 
     repo="$1"
     commit_message="$2"
-    shift 2
+    br_bin="$3"
+    shift 3
+
+    if [[ ! -x "$br_bin" ]]; then
+      echo "[queue-write-main] br binary is not executable: ${br_bin}" >&2
+      exit 1
+    fi
 
     primary_branch="$(git -C "$repo" branch --show-current)"
     if [[ "$primary_branch" != "main" ]]; then
@@ -253,13 +291,13 @@ fi
     git -C "$repo" pull --ff-only origin main
 
     cd "$repo"
-    br sync --import-only
+    "$br_bin" sync --import-only
     "$@"
-    br sync --flush-only
+    "$br_bin" sync --flush-only
 
     git add .beads/
     if ! git diff --cached --quiet; then
       git commit -m "$commit_message"
       git push origin main
     fi
-  ' -- "${PRIMARY_REPO}" "${COMMIT_MESSAGE}" "$@"
+  ' -- "${PRIMARY_REPO}" "${COMMIT_MESSAGE}" "${BR_BINARY}" "${queue_command_with_real_br[@]}"

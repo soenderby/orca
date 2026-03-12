@@ -181,6 +181,7 @@ Helper guarantees:
 4. commit/push `.beads/` only when there are staged queue changes
 5. explicit `--actor` is required and must match inner `br --actor`
 6. `br comments add` must use file payload mode (`--file`)
+7. helper executes queue `br` commands via resolved real `br` binary (`ORCA_BR_REAL_BIN` when provided), so run-time guard shims do not block approved helper workflows
 
 ### Merge Pattern (`merge-main.sh`)
 
@@ -224,10 +225,11 @@ Each iteration:
 1. creates run artifacts (`run.log`, `summary.json`, optional `summary.md`) under session/run directories
 2. renders `AGENT_PROMPT.md` placeholders (agent/worktree/summary/primary-repo/lock/queue-write/merge-helper paths, assignment mode, assigned issue)
 3. executes agent command once
-4. parses summary JSON and validates required schema fields when present
-5. restores any leftover local `.beads/` working-tree changes to keep run branches clean
-6. appends metrics row to `agent-logs/metrics.jsonl`
-7. in default `drain` mode, stops on sustained `no_work` (after `ORCA_NO_WORK_RETRY_LIMIT + 1` consecutive `no_work` results); transient no-work windows can retry up to the configured limit
+4. injects a run-time `br` guard shim that allows read-only commands and blocks direct mutation subcommands by default
+5. parses summary JSON and validates required schema fields when present
+6. restores any leftover local `.beads/` working-tree changes to keep run branches clean
+7. appends metrics row to `agent-logs/metrics.jsonl`
+8. in default `drain` mode, stops on sustained `no_work` (after `ORCA_NO_WORK_RETRY_LIMIT + 1` consecutive `no_work` results); transient no-work windows can retry up to the configured limit
 8. `watch` mode disables no-work auto-stop and keeps polling until an earlier stop condition (`MAX_RUNS`, `loop_action=stop`, or failure)
 
 ## Validation and Safety Checks
@@ -461,4 +463,7 @@ Primary repo and helper paths are injected to agents as:
 - `ORCA_WITH_LOCK_PATH`: absolute path to lock helper passed to agents; defaults to `<repo-root>/with-lock.sh` in both `start.sh` and `agent-loop.sh`, and must be executable
 - `ORCA_QUEUE_WRITE_MAIN_PATH`: absolute path to queue mutation helper passed to agents (default `<repo-root>/queue-write-main.sh`)
 - `ORCA_MERGE_MAIN_PATH`: absolute path to merge helper passed to agents (default `<repo-root>/merge-main.sh`)
+- `ORCA_BR_GUARD_PATH`: absolute path to run-time `br` guard shim (default `<repo-root>/br-guard.sh`)
+- `ORCA_BR_GUARD_MODE`: `enforce` (default) to block direct mutation subcommands in run worktrees, or `off` to disable guard
+- `ORCA_ALLOW_UNSAFE_BR_MUTATIONS`: explicit audited escape hatch (`0` default, `1` to allow direct mutation commands for recovery/debugging)
 - `ORCA_BASE_REF`: optional explicit base ref override for worktree setup and run-branch creation; when set, it must resolve to a commit or startup fails fast (default when unset: `main`, then `origin/main`, then current branch; warns when `main` and `origin/main` diverge)

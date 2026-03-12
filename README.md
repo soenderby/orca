@@ -73,6 +73,7 @@ Operating stance: autonomy with explicit protocol guidance (Option C; see `docs/
 ## Commands
 
 - `start [count] [--runs N|--continuous] [--drain|--watch] [--no-work-retries N] [--reasoning-level LEVEL]`
+- `doctor [--json]`
 - `stop`
 - `status [--quick|--full] [--session-id ID] [--session-prefix PREFIX]`
 - `plan [--slots N] [--output PATH]`
@@ -99,21 +100,23 @@ Orca is a `tmux`-backed multi-agent loop with one persistent git worktree per ag
 
 1. `setup-worktrees.sh` creates missing `worktrees/agent-N` on branch `swarm/agent-N` from the detected base ref (`ORCA_BASE_REF`, otherwise `main`, then `origin/main`, then current branch), warns with ahead/behind counts when `main` and `origin/main` diverge, treats `swarm/agent-N` as local transport state, and ignores any `origin/swarm/agent-N` refs.
 2. `start.sh` launches one tmux session per agent, injects runtime env (including `ORCA_BASE_REF` when set), validates the local `br` queue workspace, and fails fast when an explicit `ORCA_BASE_REF` is invalid.
-3. `plan.sh` computes deterministic assignment plans from queue-ready issues and label metadata (`px:exclusive`, `ck:*`), and emits machine-readable plan artifacts.
-4. `agent-loop.sh` runs one agent pass per iteration, validates explicit `ORCA_BASE_REF` overrides on startup, creates a unique per-run branch using the same base-ref precedence as setup, writes per-run logs/metrics, parses the agent summary JSON, and applies deterministic no-work drain policy.
-5. `AGENT_PROMPT.md` defines the agent contract for issue lifecycle, merge, discovery, and summary output.
-6. `with-lock.sh` provides the shared lock primitive used by queue/merge helpers.
-7. `queue-write-main.sh` performs lock-guarded queue mutations on `ORCA_PRIMARY_REPO/main`.
-8. `merge-main.sh` performs lock-guarded merge/push and rejects `.beads`-carrying source branches.
-9. `gc-run-branches.sh` safely prunes stale local `swarm/*-run-*` branches with dry-run by default.
-10. `status.sh` provides health and observability snapshots, including `br` workspace checks.
-11. `stop.sh` terminates active sessions.
+3. `doctor.sh` runs onboarding preflight checks (`--json` available) without mutating repository or queue state.
+4. `plan.sh` computes deterministic assignment plans from queue-ready issues and label metadata (`px:exclusive`, `ck:*`), and emits machine-readable plan artifacts.
+5. `agent-loop.sh` runs one agent pass per iteration, validates explicit `ORCA_BASE_REF` overrides on startup, creates a unique per-run branch using the same base-ref precedence as setup, writes per-run logs/metrics, parses the agent summary JSON, and applies deterministic no-work drain policy.
+6. `AGENT_PROMPT.md` defines the agent contract for issue lifecycle, merge, discovery, and summary output.
+7. `with-lock.sh` provides the shared lock primitive used by queue/merge helpers.
+8. `queue-write-main.sh` performs lock-guarded queue mutations on `ORCA_PRIMARY_REPO/main`.
+9. `merge-main.sh` performs lock-guarded merge/push and rejects `.beads`-carrying source branches.
+10. `gc-run-branches.sh` safely prunes stale local `swarm/*-run-*` branches with dry-run by default.
+11. `status.sh` provides health and observability snapshots, including `br` workspace checks.
+12. `stop.sh` terminates active sessions.
 
 ## File Roles
 
 - `orca.sh`: command dispatcher
 - `setup-worktrees.sh`: creates and verifies persistent agent worktrees
 - `start.sh`: launches tmux-backed agent loops
+- `doctor.sh`: preflight readiness checks for setup/operations (`--json` machine-readable mode)
 - `plan.sh`: deterministic assignment planner with machine-readable output
 - `agent-loop.sh`: per-agent run loop that executes the prompt, captures run artifacts, and records summary/metrics
 - `with-lock.sh`: scoped lock wrapper primitive for serialized shared writes
@@ -205,6 +208,21 @@ Each iteration:
 8. `watch` mode disables no-work auto-stop and keeps polling until an earlier stop condition (`MAX_RUNS`, `loop_action=stop`, or failure)
 
 ## Validation and Safety Checks
+
+### `doctor.sh`
+
+Preflight checks (read-only):
+
+1. target platform detection for Ubuntu on WSL (warn-only if unsupported)
+2. required binaries present: `git`, `tmux`, `jq`, `flock`, `br`, `codex`
+3. `br --version` executes
+4. repository context validates (`git rev-parse`, `origin` configured)
+5. remote reachability/auth is reported separately as a warning (`git ls-remote origin`)
+6. local git identity exists (`user.name`, `user.email`)
+7. queue workspace health (`.beads/` exists, `br doctor`, `br config get id.prefix`)
+8. helper scripts are present and executable (`with-lock.sh`, `queue-write-main.sh`, `merge-main.sh`)
+9. `--json` emits stable check IDs, statuses, severities, and structured remediation commands
+10. command exits non-zero when any hard requirement fails
 
 ### `start.sh`
 

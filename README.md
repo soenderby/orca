@@ -93,7 +93,8 @@ Operating stance: autonomy with explicit protocol guidance (Option C; see `docs/
 - `start [count] [--runs N|--continuous] [--drain|--watch] [--no-work-retries N] [--reasoning-level LEVEL]`
 - `doctor [--json]`
 - `stop`
-- `status [--quick|--full] [--session-id ID] [--session-prefix PREFIX]`
+- `status [--quick|--full] [--json] [--session-id ID] [--session-prefix PREFIX]`
+- `status --follow [--poll-interval SECONDS] [--max-events N] [--session-id ID] [--session-prefix PREFIX]`
 - `wait [--timeout SECONDS] [--poll-interval SECONDS] [--session-id ID] [--session-prefix PREFIX] [--json]`
 - `plan [--slots N] [--output PATH]`
 - `gc-run-branches [--apply] [--base REF]`
@@ -374,15 +375,17 @@ Signal handling:
 
 1. defaults to `--quick` for a fast active-operations view (health summary, active sessions, current claims, latest run activity, high-signal alerts)
 2. supports `--full` for complete diagnostics (legacy output depth)
-3. supports session scoping with `--session-id` (exact match) and `--session-prefix` (prefix match) for both quick and full views
-4. reports active run state per scoped session (`state=running|idle`) from live run artifacts so operators can distinguish in-progress execution from idle/stalled state
-5. in full mode, prints queue backend diagnostics for `br` (version, workspace presence, doctor result, sync status)
-6. in full mode, prints per-agent latest activity from `metrics.jsonl` (session, result, issue, age, duration, tokens, loop action)
-7. in full mode, prints tmux sessions and git worktrees
-8. in full mode, prints queue snapshots (`in_progress`, `closed`)
-9. in full mode, prints latest metrics rows with session, agent, and relative age
-10. full-mode metrics summary is cached by `metrics.jsonl` fingerprint (`size:mtime:v2`) under `agent-logs/cache`; unchanged files reuse cached counters/agent latest rows
-11. cache limitation: the first `--full` call after any `metrics.jsonl` change still performs a full parse to refresh cache
+3. supports `--json` machine-readable output with explicit top-level schema version (`schema_version: "orca.status.v1"`)
+4. supports `--follow` to emit structured JSON lines lifecycle events (`schema_version: "orca.monitor.v1"`, event types: `session_started`, `run_started`, `run_completed`, `run_failed`, `loop_stopped`)
+5. supports session scoping with `--session-id` (exact match) and `--session-prefix` (prefix match) across quick/full/json/follow surfaces
+6. reports active run state per scoped session (`state=running|idle`) from live run artifacts so operators can distinguish in-progress execution from idle/stalled state
+7. in full mode, prints queue backend diagnostics for `br` (version, workspace presence, doctor result, sync status)
+8. in full mode, prints per-agent latest activity from `metrics.jsonl` (session, result, issue, age, duration, tokens, loop action)
+9. in full mode, prints tmux sessions and git worktrees
+10. in full mode, prints queue snapshots (`in_progress`, `closed`)
+11. in full mode, prints latest metrics rows with session, agent, and relative age
+12. full-mode metrics summary is cached by `metrics.jsonl` fingerprint (`size:mtime:v2`) under `agent-logs/cache`; unchanged files reuse cached counters/agent latest rows
+13. cache limitation: the first `--full` call after any `metrics.jsonl` change still performs a full parse to refresh cache
 
 Tuning knobs:
 
@@ -396,6 +399,19 @@ Tuning knobs:
 Performance regression check:
 
 - `bash tests/status_metrics_perf_check.sh`
+- `bash tests/status_session_scope_and_progress.sh`
+- `bash tests/regression_status_follow_monitor.sh`
+
+Automation examples:
+
+```bash
+# Parse health + alerts in machine-readable status output
+./orca.sh status --quick --json | jq '{health: .health.status, alerts: .health.alerts}'
+
+# Follow lifecycle transitions for one session and react to failures
+./orca.sh status --follow --session-id "<session-id>" \
+  | jq -r 'select(.event_type == "run_failed") | "FAILED " + .session_id + " run=" + (.run.run_id // "none")'
+```
 
 ### `wait.sh`
 

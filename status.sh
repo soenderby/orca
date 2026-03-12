@@ -15,21 +15,48 @@ FIELD_SEP=$'\x1f'
 STATUS_MODE="quick"
 SESSION_FILTER_ID=""
 SESSION_FILTER_PREFIX=""
+OUTPUT_JSON=0
+FOLLOW_MODE=0
+FOLLOW_POLL_INTERVAL_SECONDS=2
+FOLLOW_MAX_EVENTS=0
 
 usage() {
   cat <<USAGE
 Usage:
-  ./orca.sh status [--quick|--full] [--session-id ID] [--session-prefix PREFIX]
-  ./status.sh [--quick|--full] [--session-id ID] [--session-prefix PREFIX]
+  ./orca.sh status [--quick|--full] [--json] [--session-id ID] [--session-prefix PREFIX]
+  ./orca.sh status --follow [--poll-interval SECONDS] [--max-events N] [--session-id ID] [--session-prefix PREFIX]
+  ./status.sh [--quick|--full] [--json] [--session-id ID] [--session-prefix PREFIX]
+  ./status.sh --follow [--poll-interval SECONDS] [--max-events N] [--session-id ID] [--session-prefix PREFIX]
 
 Modes:
   --quick  Fast active-operations summary (default)
   --full   Full diagnostics (legacy status output)
+  --json   Emit machine-readable status payload (schema_version included)
+  --follow Emit JSONL lifecycle transition events for scoped sessions
 
 Session scope:
   --session-id ID        Only include data for an exact session id
   --session-prefix TEXT  Only include data where session id starts with TEXT
+
+Follow options:
+  --poll-interval N      Follow poll interval in seconds (default: 2)
+  --max-events N         Stop follow mode after N emitted events (default: 0=unbounded)
 USAGE
+}
+
+is_non_negative_int() {
+  local value="${1:-}"
+  [[ "${value}" =~ ^[0-9]+$ ]]
+}
+
+is_positive_int() {
+  local value="${1:-}"
+  [[ "${value}" =~ ^[1-9][0-9]*$ ]]
+}
+
+invalid() {
+  echo "status: $*" >&2
+  exit 1
 }
 
 while [[ $# -gt 0 ]]; do
@@ -39,6 +66,30 @@ while [[ $# -gt 0 ]]; do
       ;;
     --full)
       STATUS_MODE="full"
+      ;;
+    --json)
+      OUTPUT_JSON=1
+      ;;
+    --follow)
+      FOLLOW_MODE=1
+      ;;
+    --poll-interval)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing value for --poll-interval" >&2
+        usage >&2
+        exit 1
+      fi
+      FOLLOW_POLL_INTERVAL_SECONDS="$2"
+      shift
+      ;;
+    --max-events)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing value for --max-events" >&2
+        usage >&2
+        exit 1
+      fi
+      FOLLOW_MAX_EVENTS="$2"
+      shift
       ;;
     --session-id)
       if [[ $# -lt 2 ]]; then
@@ -70,6 +121,19 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
+
+if ! is_positive_int "${FOLLOW_POLL_INTERVAL_SECONDS}"; then
+  invalid "--poll-interval must be a positive integer"
+fi
+if ! is_non_negative_int "${FOLLOW_MAX_EVENTS}"; then
+  invalid "--max-events must be a non-negative integer"
+fi
+if [[ "${FOLLOW_MODE}" -eq 1 ]] && [[ "${OUTPUT_JSON}" -eq 1 ]]; then
+  invalid "--json is not supported with --follow (follow mode always emits JSON lines)"
+fi
+if [[ "${FOLLOW_MODE}" -eq 1 ]] && ! command -v jq >/dev/null 2>&1; then
+  invalid "--follow requires jq"
+fi
 
 session_filter_active() {
   [[ -n "${SESSION_FILTER_ID}" || -n "${SESSION_FILTER_PREFIX}" ]]
@@ -501,6 +565,261 @@ load_filtered_metrics_summary() {
   [[ -n "${out_summary_line_ref}" ]]
 }
 
+latest_session_dir() {
+  local session_id="$1"
+
+  if [[ ! -d "${SESSION_LOG_ROOT}" ]]; then
+    return 1
+  fi
+
+  find "${SESSION_LOG_ROOT}" -mindepth 1 -maxdepth 4 -type d -name "${session_id}" \
+    2>/dev/null | sort | tail -n 1
+}
+
+latest_run_dir_for_session() {
+  local session_id="$1"
+  local session_dir=""
+
+  session_dir="$(latest_session_dir "${session_id}" || true)"
+  if [[ -z "${session_dir}" || ! -d "${session_dir}/runs" ]]; then
+    return 1
+  fi
+
+  find "${session_dir}/runs" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -n 1
+}
+
+collect_session_ids_from_logs() {
+  if [[ ! -d "${SESSION_LOG_ROOT}" ]]; then
+    return 0
+  fi
+
+  find "${SESSION_LOG_ROOT}" -type f -name 'session.log' -print 2>/dev/null \
+    | xargs -r -n1 dirname \
+    | xargs -r -n1 basename \
+    | sort -u
+}
+
+collect_follow_snapshot_json() {
+  local tmux_sessions=""
+  local tmux_session=""
+  local session_dir=""
+  local session_id=""
+  local run_dir=""
+  local run_id=""
+  local run_log=""
+  local summary_path=""
+  local run_state=""
+  local run_result=""
+  local issue_status=""
+  local run_exit_code=""
+  local first=1
+  local sessions_json="["
+  local all_session_ids=""
+
+  declare -A active_sessions=()
+  declare -A tmux_session_by_session_id=()
+
+  if command -v tmux >/dev/null 2>&1; then
+    tmux_sessions="$(tmux ls -F '#S' 2>/dev/null | grep "^${SESSION_PREFIX}-" || true)"
+    while IFS= read -r tmux_session; do
+      [[ -n "${tmux_session}" ]] || continue
+      session_dir="$(resolve_session_dir_for_tmux_session "${tmux_session}" || true)"
+      if [[ -n "${session_dir}" ]]; then
+        session_id="$(basename "${session_dir}")"
+      else
+        session_id="${tmux_session}"
+      fi
+      if ! session_matches_filter "${session_id}"; then
+        continue
+      fi
+      active_sessions["${session_id}"]=1
+      tmux_session_by_session_id["${session_id}"]="${tmux_session}"
+    done <<< "${tmux_sessions}"
+  fi
+
+  all_session_ids="$(
+    {
+      printf '%s\n' "${!active_sessions[@]:-}"
+      collect_session_ids_from_logs
+    } | sed '/^[[:space:]]*$/d' | sort -u
+  )"
+
+  while IFS= read -r session_id; do
+    [[ -n "${session_id}" ]] || continue
+    if ! session_matches_filter "${session_id}"; then
+      continue
+    fi
+
+    run_id=""
+    run_log=""
+    summary_path=""
+    run_state="none"
+    run_result=""
+    issue_status=""
+    run_exit_code=""
+
+    run_dir="$(latest_run_dir_for_session "${session_id}" || true)"
+    if [[ -n "${run_dir}" ]]; then
+      run_id="$(basename "${run_dir}")"
+      run_log="${run_dir}/run.log"
+      summary_path="${run_dir}/summary.json"
+
+      if [[ -f "${summary_path}" ]]; then
+        run_result="$(jq -r '.result // ""' "${summary_path}" 2>/dev/null || true)"
+        issue_status="$(jq -r '.issue_status // ""' "${summary_path}" 2>/dev/null || true)"
+        if [[ "${run_result}" == "completed" || "${run_result}" == "no_work" ]]; then
+          run_state="completed"
+        elif [[ -n "${run_result}" ]]; then
+          run_state="failed"
+        fi
+      fi
+
+      if [[ "${run_state}" == "none" && -f "${run_log}" ]]; then
+        if grep -q "running agent command" "${run_log}" 2>/dev/null && ! grep -q "agent command exited with" "${run_log}" 2>/dev/null; then
+          run_state="running"
+        else
+          run_exit_code="$(grep -E 'agent command exited with [0-9]+' "${run_log}" 2>/dev/null | tail -n 1 | sed -E 's/.*agent command exited with ([0-9]+).*/\1/' || true)"
+          if [[ "${run_exit_code}" =~ ^[0-9]+$ ]]; then
+            if [[ "${run_exit_code}" -eq 0 ]]; then
+              run_state="completed"
+              run_result="${run_result:-completed}"
+            else
+              run_state="failed"
+              run_result="${run_result:-failed}"
+            fi
+          fi
+        fi
+      fi
+    fi
+
+    session_json="$(
+      jq -nc \
+        --arg session_id "${session_id}" \
+        --arg tmux_session "${tmux_session_by_session_id[${session_id}]:-}" \
+        --arg run_id "${run_id}" \
+        --arg run_state "${run_state}" \
+        --arg run_result "${run_result}" \
+        --arg issue_status "${issue_status}" \
+        --arg summary_path "${summary_path}" \
+        --arg run_log_path "${run_log}" \
+        --arg observed_at "$(date -Iseconds)" \
+        --argjson active "$([[ -n "${active_sessions[${session_id}]:-}" ]] && echo true || echo false)" \
+        '{
+          session_id: $session_id,
+          tmux_session: (if $tmux_session == "" then null else $tmux_session end),
+          active: $active,
+          latest_run_id: (if $run_id == "" then null else $run_id end),
+          latest_run_state: $run_state,
+          latest_run_result: (if $run_result == "" then null else $run_result end),
+          latest_issue_status: (if $issue_status == "" then null else $issue_status end),
+          latest_summary_path: (if $summary_path == "" then null else $summary_path end),
+          latest_run_log_path: (if $run_log_path == "" then null else $run_log_path end),
+          observed_at: $observed_at
+        }'
+    )"
+
+    if [[ "${first}" -eq 1 ]]; then
+      first=0
+    else
+      sessions_json+=","
+    fi
+    sessions_json+="${session_json}"
+  done <<< "${all_session_ids}"
+
+  sessions_json+="]"
+  printf '%s\n' "${sessions_json}" | jq -c 'sort_by(.session_id)'
+}
+
+emit_follow_events_jsonl() {
+  local previous_snapshot_json="$1"
+  local current_snapshot_json="$2"
+
+  jq -crs \
+    --arg observed_at "$(date -Iseconds)" \
+    '
+      def index_by_session($arr):
+        reduce $arr[] as $row ({}; .[$row.session_id] = $row);
+      def emit($type; $id; $session; $payload):
+        {
+          schema_version: "orca.monitor.v1",
+          observed_at: $observed_at,
+          event_type: $type,
+          event_id: $id,
+          session_id: $session
+        } + $payload;
+
+      index_by_session(.[0]) as $prev
+      | index_by_session(.[1]) as $curr
+      | ($prev + $curr | keys_unsorted | unique | sort) as $session_ids
+      | [
+          $session_ids[] as $sid
+          | ($prev[$sid] // null) as $p
+          | ($curr[$sid] // null) as $c
+          | (
+              if ($p == null and $c != null) then
+                [emit("session_started"; ("session_started:" + $sid); $sid; {session: $c})]
+              else
+                []
+              end
+            )
+          + (
+              if ($c != null and ($c.latest_run_state == "running") and (($p == null) or ($p.latest_run_id != $c.latest_run_id) or ($p.latest_run_state != "running"))) then
+                [emit("run_started"; ("run_started:" + $sid + ":" + ($c.latest_run_id // "none")); $sid; {run: {run_id: $c.latest_run_id, state: $c.latest_run_state, result: $c.latest_run_result, issue_status: $c.latest_issue_status, summary_path: $c.latest_summary_path}})]
+              else
+                []
+              end
+            )
+          + (
+              if ($c != null and ($c.latest_run_state == "completed") and (($p == null) or ($p.latest_run_id != $c.latest_run_id) or ($p.latest_run_state != "completed"))) then
+                [emit("run_completed"; ("run_completed:" + $sid + ":" + ($c.latest_run_id // "none")); $sid; {run: {run_id: $c.latest_run_id, state: $c.latest_run_state, result: $c.latest_run_result, issue_status: $c.latest_issue_status, summary_path: $c.latest_summary_path}})]
+              else
+                []
+              end
+            )
+          + (
+              if ($c != null and ($c.latest_run_state == "failed") and (($p == null) or ($p.latest_run_id != $c.latest_run_id) or ($p.latest_run_state != "failed"))) then
+                [emit("run_failed"; ("run_failed:" + $sid + ":" + ($c.latest_run_id // "none")); $sid; {run: {run_id: $c.latest_run_id, state: $c.latest_run_state, result: $c.latest_run_result, issue_status: $c.latest_issue_status, summary_path: $c.latest_summary_path}})]
+              else
+                []
+              end
+            )
+          + (
+              if ($p != null and ($p.active == true) and ($c != null) and ($c.active == false)) then
+                [emit("loop_stopped"; ("loop_stopped:" + $sid + ":" + ($c.latest_run_id // "none")); $sid; {session: $c})]
+              else
+                []
+              end
+            )
+        ]
+      | flatten
+      | .[]
+    ' <(printf '%s\n' "${previous_snapshot_json}") <(printf '%s\n' "${current_snapshot_json}")
+}
+
+run_follow_monitor() {
+  local previous_snapshot_json="[]"
+  local current_snapshot_json=""
+  local emitted=0
+  local lines=""
+  local line=""
+  local line_count=0
+
+  while true; do
+    current_snapshot_json="$(collect_follow_snapshot_json)"
+    lines="$(emit_follow_events_jsonl "${previous_snapshot_json}" "${current_snapshot_json}")"
+    if [[ -n "${lines}" ]]; then
+      printf '%s\n' "${lines}"
+      line_count="$(printf '%s\n' "${lines}" | sed '/^[[:space:]]*$/d' | wc -l | tr -d '[:space:]')"
+      emitted=$((emitted + line_count))
+      if [[ "${FOLLOW_MAX_EVENTS}" -gt 0 && "${emitted}" -ge "${FOLLOW_MAX_EVENTS}" ]]; then
+        break
+      fi
+    fi
+    previous_snapshot_json="${current_snapshot_json}"
+    sleep "${FOLLOW_POLL_INTERVAL_SECONDS}"
+  done
+}
+
 run_quick_status() {
   local tmux_available=0
   local tmux_sessions=""
@@ -623,6 +942,115 @@ run_quick_status() {
     fi
   fi
 
+  if [[ "${OUTPUT_JSON}" -eq 1 ]]; then
+    local alerts_json="[]"
+    local active_sessions_json="[]"
+    local claimed_top_json="[]"
+    local health_status="OK"
+
+    if [[ "${#ALERTS[@]}" -gt 0 ]]; then
+      alerts_json="$(printf '%s\n' "${ALERTS[@]}" | jq -R -s -c 'split("\n") | map(select(length > 0))')"
+      health_status="ATTENTION"
+    fi
+    if [[ -n "${active_session_rows}" ]]; then
+      active_sessions_json="$(
+        printf '%s\n' "${active_session_rows}" | jq -R -s -c '
+          split("\n")
+          | map(select(length > 0))
+          | map(split("\u001f"))
+          | map({
+              tmux_session: .[0],
+              session_id: (if .[1] == "" then null else .[1] end),
+              agent_name: (if .[2] == "" then null else .[2] end),
+              state: .[3],
+              updated_age: .[4],
+              latest_run_id: .[5]
+            })
+        ' 2>/dev/null || echo "[]"
+      )"
+    fi
+    if [[ -n "${claimed_json}" ]]; then
+      claimed_top_json="$(printf '%s\n' "${claimed_json}" | jq -c '.[0:5]' 2>/dev/null || echo "[]")"
+    fi
+
+    jq -nc \
+      --arg schema_version "orca.status.v1" \
+      --arg generated_at "$(date -Iseconds)" \
+      --arg repo "${ROOT}" \
+      --arg mode "quick" \
+      --arg session_filter_id "${SESSION_FILTER_ID}" \
+      --arg session_filter_prefix "${SESSION_FILTER_PREFIX}" \
+      --arg session_scope_description "$(session_filter_description)" \
+      --arg health_status "${health_status}" \
+      --arg br_version "${br_version}" \
+      --arg latest_timestamp "${last_timestamp}" \
+      --arg latest_agent "${last_agent}" \
+      --arg latest_result "${last_result}" \
+      --arg latest_issue "${last_issue}" \
+      --arg latest_duration "${last_duration}" \
+      --arg latest_tokens "${last_tokens}" \
+      --arg latest_age "$(if [[ -n "${last_timestamp}" ]]; then format_age_from_timestamp "${last_timestamp}"; else echo ""; fi)" \
+      --argjson tmux_available "$([[ "${tmux_available}" -eq 1 ]] && echo true || echo false)" \
+      --argjson sessions_total "${tmux_count}" \
+      --argjson active_running_count "${active_running_count}" \
+      --argjson scoped_session_count "${scoped_session_count}" \
+      --argjson agent_worktree_count "${agent_worktree_count}" \
+      --argjson main_dirty_count "${main_dirty_count}" \
+      --argjson claimed_count "${claimed_count}" \
+      --argjson metrics_available "$([[ "${metrics_available}" -eq 1 ]] && echo true || echo false)" \
+      --argjson br_workspace_present "$([[ "${br_workspace_present}" -eq 1 ]] && echo true || echo false)" \
+      --argjson alerts "${alerts_json}" \
+      --argjson active_sessions "${active_sessions_json}" \
+      --argjson claimed_top "${claimed_top_json}" \
+      '{
+        schema_version: $schema_version,
+        generated_at: $generated_at,
+        repo: $repo,
+        mode: $mode,
+        session_scope: {
+          id: (if $session_filter_id == "" then null else $session_filter_id end),
+          prefix: (if $session_filter_prefix == "" then null else $session_filter_prefix end),
+          description: $session_scope_description
+        },
+        health: {
+          status: $health_status,
+          alert_count: ($alerts | length),
+          alerts: $alerts
+        },
+        signals: {
+          tmux_available: $tmux_available,
+          sessions_total: $sessions_total,
+          active_running_count: $active_running_count,
+          scoped_session_count: $scoped_session_count,
+          agent_worktree_count: $agent_worktree_count,
+          primary_repo_dirty_paths: $main_dirty_count,
+          claimed_count: $claimed_count
+        },
+        latest_activity: (
+          if $metrics_available then
+            {
+              timestamp: (if $latest_timestamp == "" then null else $latest_timestamp end),
+              age: (if $latest_age == "" then null else $latest_age end),
+              agent_name: (if $latest_agent == "" then null else $latest_agent end),
+              result: (if $latest_result == "" then null else $latest_result end),
+              issue_id: (if $latest_issue == "" then null else $latest_issue end),
+              duration_seconds: ($latest_duration | tonumber? // 0),
+              tokens_used: ($latest_tokens | tonumber? // null)
+            }
+          else
+            null
+          end
+        ),
+        queue_backend: {
+          br_version: $br_version,
+          workspace_present: $br_workspace_present
+        },
+        active_sessions: $active_sessions,
+        active_claims_top: $claimed_top
+      }'
+    return 0
+  fi
+
   echo "== orca health (quick) =="
   echo "time: $(date -Iseconds)"
   echo "repo: ${ROOT}"
@@ -688,6 +1116,14 @@ run_quick_status() {
     echo "(none)"
   fi
 }
+
+if [[ "${FOLLOW_MODE}" -eq 1 ]]; then
+  if [[ "${STATUS_MODE}" == "full" ]]; then
+    invalid "--follow cannot be combined with --full"
+  fi
+  run_follow_monitor
+  exit 0
+fi
 
 if [[ "${STATUS_MODE}" == "quick" ]]; then
   run_quick_status
@@ -867,6 +1303,205 @@ if [[ "${metrics_summary_available}" -eq 1 ]]; then
   if [[ "${last_result}" != "completed" && "${last_result}" != "no_work" ]]; then
     add_alert "Most recent run result is ${last_result} (issue=${last_issue:-none}, agent=${last_agent:-unknown-agent})."
   fi
+fi
+
+if [[ "${OUTPUT_JSON}" -eq 1 ]]; then
+  alerts_json="[]"
+  active_sessions_json="[]"
+  agent_activity_json="[]"
+  dirty_worktrees_json="[]"
+  recent_metrics_json="[]"
+  claimed_issues_json="[]"
+  closed_issues_json="[]"
+  br_sync_status_lines_json="[]"
+  health_status="OK"
+
+  if [[ "${#ALERTS[@]}" -gt 0 ]]; then
+    alerts_json="$(printf '%s\n' "${ALERTS[@]}" | jq -R -s -c 'split("\n") | map(select(length > 0))')"
+    health_status="ATTENTION"
+  fi
+  if [[ -n "${active_session_rows}" ]]; then
+    active_sessions_json="$(
+      printf '%s\n' "${active_session_rows}" | jq -R -s -c '
+        split("\n")
+        | map(select(length > 0))
+        | map(split("\u001f"))
+        | map({
+            tmux_session: .[0],
+            session_id: (if .[1] == "" then null else .[1] end),
+            agent_name: (if .[2] == "" then null else .[2] end),
+            state: .[3],
+            updated_age: .[4],
+            latest_run_id: .[5]
+          })
+      ' 2>/dev/null || echo "[]"
+    )"
+  fi
+  if [[ -n "${agent_activity_rows}" ]]; then
+    agent_activity_json="$(
+      printf '%s\n' "${agent_activity_rows}" | jq -R -s -c '
+        split("\n")
+        | map(select(length > 0))
+        | map(split("\u001f"))
+        | map({
+            agent_name: .[0],
+            session_id: (if .[1] == "" then null else .[1] end),
+            timestamp: (if .[2] == "" then null else .[2] end),
+            result: (if .[3] == "" then null else .[3] end),
+            issue_id: (if .[4] == "" then null else .[4] end),
+            duration_seconds: (.[5] | tonumber? // 0),
+            tokens_used: (.[6] | tonumber? // null),
+            loop_action: (if .[7] == "" then null else .[7] end),
+            loop_action_reason: (if .[8] == "" then null else .[8] end)
+          })
+      ' 2>/dev/null || echo "[]"
+    )"
+  fi
+  if [[ -n "${dirty_agent_worktree_rows}" ]]; then
+    dirty_worktrees_json="$(
+      printf '%s\n' "${dirty_agent_worktree_rows}" | jq -R -s -c '
+        split("\n")
+        | map(select(length > 0))
+        | map(split("\u001f"))
+        | map({
+            agent_name: .[0],
+            worktree_path: .[1],
+            dirty_paths: (.[2] | tonumber? // 0)
+          })
+      ' 2>/dev/null || echo "[]"
+    )"
+  fi
+  if [[ -n "${recent_metrics_rows}" ]]; then
+    recent_metrics_json="$(
+      printf '%s\n' "${recent_metrics_rows}" | jq -R -s -c '
+        split("\n")
+        | map(select(length > 0))
+        | map(split("\u001f"))
+        | map({
+            timestamp: .[0],
+            session_id: .[1],
+            agent_name: .[2],
+            issue_id: .[3],
+            result: .[4],
+            reason: .[5],
+            duration_seconds: (.[6] | tonumber? // 0),
+            tokens_used: (.[7] | tonumber? // null)
+          })
+      ' 2>/dev/null || echo "[]"
+    )"
+  fi
+  if [[ "${br_available}" -eq 1 ]]; then
+    claimed_issues_json="$(br list --status in_progress --sort updated --reverse --limit "${ORCA_STATUS_CLAIMED_LIMIT}" --json 2>/dev/null || echo "[]")"
+    closed_issues_json="$(br list --status closed --sort updated --reverse --limit "${ORCA_STATUS_CLOSED_LIMIT}" --json 2>/dev/null || echo "[]")"
+  fi
+  if [[ -n "${br_sync_status_output}" ]]; then
+    br_sync_status_lines_json="$(printf '%s\n' "${br_sync_status_output}" | jq -R -s -c 'split("\n") | map(select(length > 0))')"
+  fi
+
+  jq -nc \
+    --arg schema_version "orca.status.v1" \
+    --arg generated_at "$(date -Iseconds)" \
+    --arg repo "${ROOT}" \
+    --arg mode "full" \
+    --arg session_filter_id "${SESSION_FILTER_ID}" \
+    --arg session_filter_prefix "${SESSION_FILTER_PREFIX}" \
+    --arg session_scope_description "$(session_filter_description)" \
+    --arg health_status "${health_status}" \
+    --arg br_version "${br_version}" \
+    --arg br_doctor_ok "${br_doctor_ok}" \
+    --arg latest_timestamp "${last_timestamp}" \
+    --arg latest_age "$(if [[ -n "${last_timestamp}" ]]; then format_age_from_timestamp "${last_timestamp}"; else echo ""; fi)" \
+    --arg latest_agent "${last_agent}" \
+    --arg latest_result "${last_result}" \
+    --arg latest_issue "${last_issue}" \
+    --arg latest_duration "${last_duration}" \
+    --arg latest_tokens "${last_tokens}" \
+    --argjson tmux_available "$([[ "${tmux_available}" -eq 1 ]] && echo true || echo false)" \
+    --argjson sessions_total "${tmux_count}" \
+    --argjson active_running_count "${active_running_count}" \
+    --argjson scoped_session_count "${scoped_session_count}" \
+    --argjson agent_worktree_count "${agent_worktree_count}" \
+    --argjson dirty_agent_worktree_count "${dirty_agent_worktree_count}" \
+    --argjson main_dirty_count "${main_dirty_count}" \
+    --argjson metrics_summary_available "$([[ "${metrics_summary_available}" -eq 1 ]] && echo true || echo false)" \
+    --argjson total_runs "${total_runs}" \
+    --argjson completed_runs "${completed_runs}" \
+    --argjson blocked_runs "${blocked_runs}" \
+    --argjson failed_runs "${failed_runs}" \
+    --argjson no_work_runs "${no_work_runs}" \
+    --argjson br_available "$([[ "${br_available}" -eq 1 ]] && echo true || echo false)" \
+    --argjson br_workspace_present "$([[ "${br_workspace_present}" -eq 1 ]] && echo true || echo false)" \
+    --argjson alerts "${alerts_json}" \
+    --argjson active_sessions "${active_sessions_json}" \
+    --argjson agent_activity "${agent_activity_json}" \
+    --argjson dirty_worktrees "${dirty_worktrees_json}" \
+    --argjson recent_metrics "${recent_metrics_json}" \
+    --argjson claimed_issues "${claimed_issues_json}" \
+    --argjson closed_issues "${closed_issues_json}" \
+    --argjson br_sync_status_lines "${br_sync_status_lines_json}" \
+    '{
+      schema_version: $schema_version,
+      generated_at: $generated_at,
+      repo: $repo,
+      mode: $mode,
+      session_scope: {
+        id: (if $session_filter_id == "" then null else $session_filter_id end),
+        prefix: (if $session_filter_prefix == "" then null else $session_filter_prefix end),
+        description: $session_scope_description
+      },
+      health: {
+        status: $health_status,
+        alert_count: ($alerts | length),
+        alerts: $alerts
+      },
+      signals: {
+        tmux_available: $tmux_available,
+        sessions_total: $sessions_total,
+        active_running_count: $active_running_count,
+        scoped_session_count: $scoped_session_count,
+        agent_worktree_count: $agent_worktree_count,
+        dirty_agent_worktree_count: $dirty_agent_worktree_count,
+        primary_repo_dirty_paths: $main_dirty_count
+      },
+      metrics_summary: (
+        if $metrics_summary_available then
+          {
+            total_runs: $total_runs,
+            completed_runs: $completed_runs,
+            blocked_runs: $blocked_runs,
+            failed_runs: $failed_runs,
+            no_work_runs: $no_work_runs,
+            last_run: {
+              timestamp: (if $latest_timestamp == "" then null else $latest_timestamp end),
+              age: (if $latest_age == "" then null else $latest_age end),
+              agent_name: (if $latest_agent == "" then null else $latest_agent end),
+              result: (if $latest_result == "" then null else $latest_result end),
+              issue_id: (if $latest_issue == "" then null else $latest_issue end),
+              duration_seconds: ($latest_duration | tonumber? // 0),
+              tokens_used: ($latest_tokens | tonumber? // null)
+            }
+          }
+        else
+          null
+        end
+      ),
+      queue_backend: {
+        br_available: $br_available,
+        br_version: $br_version,
+        workspace_present: $br_workspace_present,
+        doctor: $br_doctor_ok,
+        sync_status_lines: $br_sync_status_lines
+      },
+      active_sessions: $active_sessions,
+      agent_activity: $agent_activity,
+      dirty_agent_worktrees: $dirty_worktrees,
+      queue_snapshots: {
+        in_progress: $claimed_issues,
+        closed: $closed_issues
+      },
+      recent_metrics: $recent_metrics
+    }'
+  exit 0
 fi
 
 echo "== orca health =="

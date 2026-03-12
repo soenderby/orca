@@ -14,7 +14,8 @@ Commands:
   doctor [--json]
   start [count] [--runs N|--continuous] [--drain|--watch] [--no-work-retries N] [--reasoning-level LEVEL]
   stop
-  status [--quick|--full]
+  status [--quick|--full] [--json] [--session-id ID] [--session-prefix PREFIX]
+  status --follow [--poll-interval SECONDS] [--max-events N] [--session-id ID] [--session-prefix PREFIX]
   wait [--timeout SECONDS] [--session-id ID] [--session-prefix PREFIX] [--json]
   plan [--slots N] [--output PATH]
   gc-run-branches [--apply] [--base REF]

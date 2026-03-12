@@ -92,4 +92,18 @@ if ! printf '%s\n' "${session_prefix_output}" | grep -F "latest activity:" | gre
   exit 1
 fi
 
+json_output="$(cd "${WORKTREE_DIR}" && PATH="${TMP_DIR}/bin:/usr/bin:/bin" bash ./status.sh --quick --json --session-id "${SESSION_1}")"
+if [[ "$(printf '%s\n' "${json_output}" | jq -r '.schema_version')" != "orca.status.v1" ]]; then
+  echo "expected schema_version in quick json output" >&2
+  exit 1
+fi
+if [[ "$(printf '%s\n' "${json_output}" | jq -r '.session_scope.id')" != "${SESSION_1}" ]]; then
+  echo "expected session scope id in quick json output" >&2
+  exit 1
+fi
+if [[ "$(printf '%s\n' "${json_output}" | jq -r '.signals.active_running_count')" != "1" ]]; then
+  echo "expected scoped active running count in quick json output" >&2
+  exit 1
+fi
+
 echo "status session scope and run-progress check passed"

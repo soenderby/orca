@@ -199,18 +199,26 @@ ready_issue_count() {
   printf '%s\n' "${ready_count}"
 }
 
-ready_issue_ids() {
-  local ready_json
+build_assignment_plan() {
+  local slots="$1"
+  local plan_dir
+  local plan_path
+  local plan_json
 
-  if ! ready_json="$(br ready --json 2>/dev/null)"; then
-    echo "[start] failed to query ready issues via br ready --json" >&2
+  plan_dir="${ROOT}/agent-logs/plans/$(date -u +%Y/%m/%d)"
+  plan_path="${plan_dir}/start-plan-$(date -u +%Y%m%dT%H%M%SZ)-$$.json"
+
+  if ! plan_json="$("${SCRIPT_DIR}/plan.sh" --slots "${slots}" --output "${plan_path}")"; then
+    echo "[start] planner failed for assigned mode (slots=${slots})" >&2
     return 1
   fi
 
-  if ! jq -re 'if type == "array" then .[].id else error("ready output must be an array") end' <<< "${ready_json}" 2>/dev/null; then
-    echo "[start] unable to parse ready issue ids from br ready --json output" >&2
+  if ! jq -e '.assignments | type == "array"' >/dev/null 2>&1 <<< "${plan_json}"; then
+    echo "[start] planner output missing assignments array" >&2
     return 1
   fi
+
+  printf '%s\t%s\n' "${plan_path}" "${plan_json}"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -424,7 +432,13 @@ echo "[start] launch planning: requested=${COUNT} running=${running_sessions} re
 
 ready_ids=()
 if [[ "${ORCA_ASSIGNMENT_MODE}" == "assigned" && "${launch_limit}" -gt 0 ]]; then
-  mapfile -t ready_ids < <(ready_issue_ids)
+  assignment_plan_bundle="$(build_assignment_plan "${launch_limit}")"
+  assignment_plan_path="${assignment_plan_bundle%%$'\t'*}"
+  assignment_plan_json="${assignment_plan_bundle#*$'\t'}"
+  mapfile -t ready_ids < <(jq -re '.assignments[].issue_id' <<< "${assignment_plan_json}")
+  plan_held_count="$(jq -re '.held | length' <<< "${assignment_plan_json}")"
+  launch_limit="${#ready_ids[@]}"
+  echo "[start] assignment plan: artifact=${assignment_plan_path} assigned=${launch_limit} held=${plan_held_count}"
 fi
 
 launched_count=0

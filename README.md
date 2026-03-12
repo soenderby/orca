@@ -95,7 +95,7 @@ Operating stance: autonomy with explicit protocol guidance (Option C; see `docs/
 - `stop`
 - `status [--quick|--full] [--json] [--session-id ID] [--session-prefix PREFIX]`
 - `status --follow [--poll-interval SECONDS] [--max-events N] [--session-id ID] [--session-prefix PREFIX]`
-- `wait [--timeout SECONDS] [--poll-interval SECONDS] [--session-id ID] [--session-prefix PREFIX] [--json]`
+- `wait [--timeout SECONDS] [--poll-interval SECONDS] [--session-id ID] [--session-prefix PREFIX] [--all-history] [--json]`
 - `plan [--slots N] [--output PATH]`
 - `gc-run-branches [--apply] [--base REF]`
 - `setup-worktrees [count]`
@@ -424,10 +424,12 @@ Automation examples:
 
 1. blocks until scoped sessions reach terminal summary state
 2. supports session scoping with `--session-id` (exact) and `--session-prefix` (prefix)
-3. supports bounded waiting via `--timeout SECONDS` and deterministic polling via `--poll-interval SECONDS`
-4. does not full-scan `metrics.jsonl` on each poll; it inspects scoped session run artifacts
-5. emits concise final rollup by default; `--json` emits machine-readable final state
-6. no scoped sessions at invocation is treated as immediate success with reason `no_scoped_sessions`
+3. in unscoped mode, defaults to sessions active at invocation (prevents historical-session false failures)
+4. `--all-history` restores historical log scope for broad retrospective waits
+5. supports bounded waiting via `--timeout SECONDS` and deterministic polling via `--poll-interval SECONDS`
+6. does not full-scan `metrics.jsonl` on each poll; it inspects scoped session run artifacts
+7. emits concise final rollup by default; `--json` emits machine-readable final state
+8. no scoped sessions at invocation is treated as immediate success with reason `no_scoped_sessions`
 
 Exit codes:
 

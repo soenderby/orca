@@ -9,6 +9,7 @@ TIMEOUT_SECONDS=""
 OUTPUT_JSON=0
 SESSION_FILTER_ID=""
 SESSION_FILTER_PREFIX=""
+ALL_HISTORY=0
 
 EXIT_SUCCESS=0
 EXIT_TIMEOUT=2
@@ -18,14 +19,15 @@ EXIT_INVALID=4
 usage() {
   cat <<'USAGE'
 Usage:
-  ./orca.sh wait [--timeout SECONDS] [--poll-interval SECONDS] [--session-id ID] [--session-prefix PREFIX] [--json]
-  ./wait.sh [--timeout SECONDS] [--poll-interval SECONDS] [--session-id ID] [--session-prefix PREFIX] [--json]
+  ./orca.sh wait [--timeout SECONDS] [--poll-interval SECONDS] [--session-id ID] [--session-prefix PREFIX] [--all-history] [--json]
+  ./wait.sh [--timeout SECONDS] [--poll-interval SECONDS] [--session-id ID] [--session-prefix PREFIX] [--all-history] [--json]
 
 Options:
   --timeout SECONDS        Stop waiting after SECONDS (default: no timeout)
   --poll-interval SECONDS  Poll period in seconds (default: 2)
   --session-id ID          Exact session id scope filter
   --session-prefix PREFIX  Prefix session id scope filter
+  --all-history            Include historical sessions from logs in unscoped mode
   --json                   Print machine-readable final result JSON
 
 Exit codes:
@@ -72,6 +74,9 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || invalid "missing value for --session-prefix"
       SESSION_FILTER_PREFIX="$2"
       shift
+      ;;
+    --all-history)
+      ALL_HISTORY=1
       ;;
     --json)
       OUTPUT_JSON=1
@@ -131,7 +136,11 @@ session_filter_description() {
   fi
 
   if [[ -z "${parts}" ]]; then
-    echo "all sessions"
+    if [[ "${ALL_HISTORY}" -eq 1 ]]; then
+      echo "all sessions (history)"
+    else
+      echo "active sessions at invocation"
+    fi
   else
     echo "${parts}"
   fi
@@ -495,6 +504,13 @@ emit_final_result() {
 }
 
 declare -A SEEN_SESSION_IDS=()
+default_active_scope_mode=0
+default_active_scope_captured=0
+
+if ! session_filter_active && [[ "${ALL_HISTORY}" -eq 0 ]]; then
+  default_active_scope_mode=1
+fi
+
 start_epoch="$(date +%s)"
 
 while true; do
@@ -505,15 +521,32 @@ while true; do
   fi
 
   mapfile -t active_ids < <(collect_active_session_ids)
-  mapfile -t scoped_now < <(collect_scoped_session_ids)
 
-  for id in "${scoped_now[@]:-}"; do
-    [[ -n "${id}" ]] || continue
-    SEEN_SESSION_IDS["${id}"]=1
-  done
+  if (( default_active_scope_mode == 0 )); then
+    mapfile -t scoped_now < <(collect_scoped_session_ids)
+    for id in "${scoped_now[@]:-}"; do
+      [[ -n "${id}" ]] || continue
+      SEEN_SESSION_IDS["${id}"]=1
+    done
+  else
+    if (( default_active_scope_captured == 0 )); then
+      for id in "${active_ids[@]:-}"; do
+        [[ -n "${id}" ]] || continue
+        SEEN_SESSION_IDS["${id}"]=1
+      done
+
+      if (( ${#SEEN_SESSION_IDS[@]} > 0 )) || (( elapsed_seconds >= POLL_INTERVAL_SECONDS )); then
+        default_active_scope_captured=1
+      fi
+    fi
+  fi
 
   seen_count="${#SEEN_SESSION_IDS[@]}"
   if (( seen_count == 0 )); then
+    if (( default_active_scope_mode == 1 && default_active_scope_captured == 0 )); then
+      sleep "${POLL_INTERVAL_SECONDS}"
+      continue
+    fi
     emit_final_result "success" "no_scoped_sessions" "${EXIT_SUCCESS}" "${elapsed_seconds}" "[]"
   fi
 
@@ -521,7 +554,9 @@ while true; do
   for id in "${active_ids[@]:-}"; do
     [[ -n "${id}" ]] || continue
     ACTIVE_BY_ID["${id}"]=1
-    SEEN_SESSION_IDS["${id}"]=1
+    if (( default_active_scope_mode == 0 )); then
+      SEEN_SESSION_IDS["${id}"]=1
+    fi
   done
 
   session_jsonl=""

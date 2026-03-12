@@ -72,7 +72,7 @@ assert_json_field() {
   fi
 }
 
-# Case 1: success when scoped session has successful terminal summary.
+# Case 1: success in historical mode when historical session has successful terminal summary.
 reset_artifacts
 echo "none" > "${TMUX_MODE_FILE}"
 SESSION_OK="orca-agent-1-20260312T100000Z"
@@ -86,12 +86,13 @@ cat > "${RUN_OK}/summary.json" <<'JSON'
 JSON
 
 OUT1="${TMP_DIR}/out1.json"
-if ! run_wait_json "${OUT1}" --timeout 1 --poll-interval 1; then
+if ! run_wait_json "${OUT1}" --all-history --timeout 1 --poll-interval 1; then
   echo "wait success case returned non-zero exit" >&2
   exit 1
 fi
 assert_json_field "${OUT1}" '.status' 'success'
 assert_json_field "${OUT1}" '.reason' 'all_scoped_sessions_finished'
+assert_json_field "${OUT1}" '.scope.description' 'all sessions (history)'
 assert_json_field "${OUT1}" '.counts.succeeded' '1'
 
 # Case 2: failure when scoped session reports blocked/failed terminal summary.
@@ -109,7 +110,7 @@ JSON
 
 OUT2="${TMP_DIR}/out2.json"
 set +e
-run_wait_json "${OUT2}" --timeout 1 --poll-interval 1
+run_wait_json "${OUT2}" --all-history --timeout 1 --poll-interval 1
 status2=$?
 set -e
 if [[ "${status2}" -ne 3 ]]; then
@@ -120,35 +121,66 @@ assert_json_field "${OUT2}" '.status' 'failure'
 assert_json_field "${OUT2}" '.reason' 'scoped_failure_detected'
 assert_json_field "${OUT2}" '.counts.failed' '1'
 
-# Case 3: timeout when active scoped session never reaches terminal state.
-reset_artifacts
-echo "one" > "${TMUX_MODE_FILE}"
-OUT3="${TMP_DIR}/out3.json"
-set +e
-run_wait_json "${OUT3}" --timeout 1 --poll-interval 1
-status3=$?
-set -e
-if [[ "${status3}" -ne 2 ]]; then
-  echo "expected wait timeout exit code 2, got ${status3}" >&2
-  exit 1
-fi
-assert_json_field "${OUT3}" '.status' 'timeout'
-assert_json_field "${OUT3}" '.reason' 'timeout'
-assert_json_field "${OUT3}" '.counts.running' '1'
-
-# Case 4: no scoped sessions is immediate success with explicit reason.
+# Case 3: default unscoped mode ignores historical sessions and returns no_scoped_sessions.
 reset_artifacts
 echo "none" > "${TMUX_MODE_FILE}"
+SESSION_OLD_FAIL="orca-agent-1-20260312T100500Z"
+SESSION_OLD_OK="orca-agent-1-20260312T100600Z"
+RUN_OLD_FAIL="${WORKTREE_DIR}/agent-logs/sessions/2026/03/12/${SESSION_OLD_FAIL}/runs/0001-20260312T100500000000000Z"
+RUN_OLD_OK="${WORKTREE_DIR}/agent-logs/sessions/2026/03/12/${SESSION_OLD_OK}/runs/0001-20260312T100600000000000Z"
+mkdir -p "${RUN_OLD_FAIL}" "${RUN_OLD_OK}"
+cat > "${WORKTREE_DIR}/agent-logs/sessions/2026/03/12/${SESSION_OLD_FAIL}/session.log" <<'LOG'
+[2026-03-12T10:05:00Z] [agent-1] starting loop
+LOG
+cat > "${WORKTREE_DIR}/agent-logs/sessions/2026/03/12/${SESSION_OLD_OK}/session.log" <<'LOG'
+[2026-03-12T10:06:00Z] [agent-1] starting loop
+LOG
+cat > "${RUN_OLD_FAIL}/summary.json" <<'JSON'
+{"issue_id":"orca-old","result":"failed","issue_status":"in_progress","merged":false,"loop_action":"continue","loop_action_reason":"","notes":"old failed run"}
+JSON
+cat > "${RUN_OLD_OK}/summary.json" <<'JSON'
+{"issue_id":"orca-new","result":"completed","issue_status":"closed","merged":true,"loop_action":"continue","loop_action_reason":"","notes":"old successful run"}
+JSON
+
+OUT3="${TMP_DIR}/out3.json"
+if ! run_wait_json "${OUT3}" --timeout 1 --poll-interval 1; then
+  echo "wait default-unscoped no-scoped case returned non-zero exit" >&2
+  exit 1
+fi
+assert_json_field "${OUT3}" '.status' 'success'
+assert_json_field "${OUT3}" '.reason' 'no_scoped_sessions'
+assert_json_field "${OUT3}" '.scope.description' 'active sessions at invocation'
+assert_json_field "${OUT3}" '.counts.scoped_sessions' '0'
+
+# Case 4: timeout when active scoped session never reaches terminal state.
+reset_artifacts
+echo "one" > "${TMUX_MODE_FILE}"
 OUT4="${TMP_DIR}/out4.json"
-if ! run_wait_json "${OUT4}" --timeout 1 --poll-interval 1 --session-id "missing-session"; then
+set +e
+run_wait_json "${OUT4}" --timeout 1 --poll-interval 1
+status4=$?
+set -e
+if [[ "${status4}" -ne 2 ]]; then
+  echo "expected wait timeout exit code 2, got ${status4}" >&2
+  exit 1
+fi
+assert_json_field "${OUT4}" '.status' 'timeout'
+assert_json_field "${OUT4}" '.reason' 'timeout'
+assert_json_field "${OUT4}" '.counts.running' '1'
+
+# Case 5: no scoped sessions is immediate success with explicit reason.
+reset_artifacts
+echo "none" > "${TMUX_MODE_FILE}"
+OUT5="${TMP_DIR}/out5.json"
+if ! run_wait_json "${OUT5}" --timeout 1 --poll-interval 1 --session-id "missing-session"; then
   echo "wait no-scoped case returned non-zero exit" >&2
   exit 1
 fi
-assert_json_field "${OUT4}" '.status' 'success'
-assert_json_field "${OUT4}" '.reason' 'no_scoped_sessions'
-assert_json_field "${OUT4}" '.counts.scoped_sessions' '0'
+assert_json_field "${OUT5}" '.status' 'success'
+assert_json_field "${OUT5}" '.reason' 'no_scoped_sessions'
+assert_json_field "${OUT5}" '.counts.scoped_sessions' '0'
 
-# Case 5: session-id scope isolates selected session from failures outside scope.
+# Case 6: session-id scope isolates selected session from failures outside scope.
 reset_artifacts
 echo "none" > "${TMUX_MODE_FILE}"
 SESSION_A="orca-agent-1-20260312T102000Z"
@@ -169,13 +201,13 @@ cat > "${RUN_B}/summary.json" <<'JSON'
 {"issue_id":"orca-4","result":"failed","issue_status":"in_progress","merged":false,"loop_action":"continue","loop_action_reason":"","notes":"bad"}
 JSON
 
-OUT5="${TMP_DIR}/out5.json"
-if ! run_wait_json "${OUT5}" --timeout 1 --poll-interval 1 --session-id "${SESSION_A}"; then
+OUT6="${TMP_DIR}/out6.json"
+if ! run_wait_json "${OUT6}" --timeout 1 --poll-interval 1 --session-id "${SESSION_A}"; then
   echo "wait scoped-session case returned non-zero exit" >&2
   exit 1
 fi
-assert_json_field "${OUT5}" '.status' 'success'
-assert_json_field "${OUT5}" '.counts.scoped_sessions' '1'
-assert_json_field "${OUT5}" '.sessions[0].session_id' "${SESSION_A}"
+assert_json_field "${OUT6}" '.status' 'success'
+assert_json_field "${OUT6}" '.counts.scoped_sessions' '1'
+assert_json_field "${OUT6}" '.sessions[0].session_id' "${SESSION_A}"
 
 echo "wait command regression checks passed"

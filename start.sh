@@ -432,13 +432,29 @@ echo "[start] launch planning: requested=${COUNT} running=${running_sessions} re
 
 ready_ids=()
 if [[ "${ORCA_ASSIGNMENT_MODE}" == "assigned" && "${launch_limit}" -gt 0 ]]; then
+  requested_assignment_slots="${launch_limit}"
   assignment_plan_bundle="$(build_assignment_plan "${launch_limit}")"
   assignment_plan_path="${assignment_plan_bundle%%$'\t'*}"
   assignment_plan_json="${assignment_plan_bundle#*$'\t'}"
   mapfile -t ready_ids < <(jq -re '.assignments[].issue_id' <<< "${assignment_plan_json}")
   plan_held_count="$(jq -re '.held | length' <<< "${assignment_plan_json}")"
   launch_limit="${#ready_ids[@]}"
-  echo "[start] assignment plan: artifact=${assignment_plan_path} assigned=${launch_limit} held=${plan_held_count}"
+  echo "[start] assignment plan: artifact=${assignment_plan_path} requested_slots=${requested_assignment_slots} assigned=${launch_limit} held=${plan_held_count}"
+  while IFS= read -r assignment_line; do
+    [[ -z "${assignment_line}" ]] && continue
+    echo "[start] assignment plan: ${assignment_line}"
+  done < <(jq -r '.assignments[] | "slot=\(.slot) issue=\(.issue_id) priority=\(.priority // "null")"' <<< "${assignment_plan_json}")
+  while IFS= read -r held_line; do
+    [[ -z "${held_line}" ]] && continue
+    echo "[start] assignment held: ${held_line}"
+  done < <(jq -r '.held[] | "issue=\(.issue_id) reason=\(.reason_code)\(if has("conflict_key") then " conflict_key=\(.conflict_key)" else "" end)"' <<< "${assignment_plan_json}")
+  if [[ "${launch_limit}" -lt "${requested_assignment_slots}" ]]; then
+    plan_held_summary="$(jq -r '[.held[].reason_code] | group_by(.) | map("\(.[0])=\(length)") | join(",")' <<< "${assignment_plan_json}")"
+    if [[ -z "${plan_held_summary}" ]]; then
+      plan_held_summary="none"
+    fi
+    echo "[start] assignment plan: assigned fewer sessions than requested_slots=${requested_assignment_slots}; held_reason_counts=${plan_held_summary}"
+  fi
 fi
 
 launched_count=0

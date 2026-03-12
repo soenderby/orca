@@ -25,7 +25,8 @@ PRIMARY_REPO="${ORCA_PRIMARY_REPO:-}"
 LOCK_HELPER_PATH="${ORCA_WITH_LOCK_PATH:-${SCRIPT_DIR}/with-lock.sh}"
 LOCK_SCOPE="${ORCA_LOCK_SCOPE:-merge}"
 LOCK_TIMEOUT_SECONDS="${ORCA_LOCK_TIMEOUT_SECONDS:-120}"
-ACTOR="${AGENT_NAME:-orca-agent}"
+ACTOR=""
+ACTOR_EXPLICIT=0
 COMMIT_MESSAGE=""
 
 while [[ $# -gt 0 ]]; do
@@ -68,6 +69,7 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       ACTOR="$2"
+      ACTOR_EXPLICIT=1
       shift 2
       ;;
     --message)
@@ -114,9 +116,107 @@ if ! [[ "${LOCK_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]]; then
   exit 1
 fi
 
+if [[ "${ACTOR_EXPLICIT}" -ne 1 ]]; then
+  echo "[queue-write-main] --actor is required and must be provided explicitly" >&2
+  exit 1
+fi
+
+if [[ -z "${ACTOR}" ]]; then
+  echo "[queue-write-main] --actor cannot be empty" >&2
+  exit 1
+fi
+
 if [[ -z "${COMMIT_MESSAGE}" ]]; then
   COMMIT_MESSAGE="queue: update by ${ACTOR}"
 fi
+
+validate_queue_command() {
+  local actor="$1"
+  shift
+  local -a cmd=("$@")
+  local idx=0
+  local token=""
+  local command_actor=""
+  local has_file_flag=0
+  local has_message_flag=0
+
+  if [[ ${#cmd[@]} -eq 0 ]]; then
+    echo "[queue-write-main] queue command is required after --" >&2
+    exit 1
+  fi
+
+  if [[ "${cmd[0]}" != "br" ]]; then
+    echo "[queue-write-main] unsupported queue command: ${cmd[0]} (expected: br ...)" >&2
+    exit 1
+  fi
+
+  while [[ ${idx} -lt ${#cmd[@]} ]]; do
+    token="${cmd[${idx}]}"
+    case "${token}" in
+      --actor)
+        if [[ $((idx + 1)) -ge ${#cmd[@]} ]]; then
+          echo "[queue-write-main] queue command has --actor without a value" >&2
+          exit 1
+        fi
+        command_actor="${cmd[$((idx + 1))]}"
+        idx=$((idx + 2))
+        ;;
+      --actor=*)
+        command_actor="${token#--actor=}"
+        idx=$((idx + 1))
+        ;;
+      *)
+        idx=$((idx + 1))
+        ;;
+    esac
+  done
+
+  if [[ -z "${command_actor}" ]]; then
+    echo "[queue-write-main] queue command must include --actor ${actor}" >&2
+    exit 1
+  fi
+
+  if [[ "${command_actor}" != "${actor}" ]]; then
+    echo "[queue-write-main] actor mismatch: helper=${actor}, command=${command_actor}" >&2
+    exit 1
+  fi
+
+  if [[ ${#cmd[@]} -ge 3 && "${cmd[1]}" == "comments" && "${cmd[2]}" == "add" ]]; then
+    idx=3
+    while [[ ${idx} -lt ${#cmd[@]} ]]; do
+      token="${cmd[${idx}]}"
+      case "${token}" in
+        -f|--file)
+          has_file_flag=1
+          idx=$((idx + 2))
+          ;;
+        --file=*)
+          has_file_flag=1
+          idx=$((idx + 1))
+          ;;
+        --message|--message=*)
+          has_message_flag=1
+          idx=$((idx + 1))
+          ;;
+        *)
+          idx=$((idx + 1))
+          ;;
+      esac
+    done
+
+    if [[ "${has_file_flag}" -ne 1 ]]; then
+      echo "[queue-write-main] unsafe comments mutation: require --file (or use queue-mutate.sh comment --stdin)" >&2
+      exit 1
+    fi
+
+    if [[ "${has_message_flag}" -eq 1 ]]; then
+      echo "[queue-write-main] unsupported comments payload form: --message is disallowed; use --file/stdin" >&2
+      exit 1
+    fi
+  fi
+}
+
+validate_queue_command "${ACTOR}" "$@"
 
 if ! git -C "${PRIMARY_REPO}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo "[queue-write-main] --repo is not a git worktree: ${PRIMARY_REPO}" >&2

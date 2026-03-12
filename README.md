@@ -83,12 +83,14 @@ Operating stance: autonomy with explicit protocol guidance (Option C; see `docs/
 - `setup-worktrees [count]`
 - `with-lock [--scope NAME] [--timeout SECONDS] -- <command> [args...]`
 - `queue-write-main [options] -- <queue-command> [args...]`
+- `queue-mutate [options] <mutation> [args...]`
 - `merge-main [--source BRANCH] [options]`
 
 Helper scripts (direct invocation):
 
 - `./with-lock.sh [--scope NAME] [--timeout SECONDS] -- <command> [args...]`
 - `./queue-write-main.sh [options] -- <queue-command> [args...]`
+- `./queue-mutate.sh [options] <mutation> [args...]`
 - `./merge-main.sh [--source BRANCH] [options]`
 - `./gc-run-branches.sh [--apply] [--base REF] [--repo PATH]`
 
@@ -108,8 +110,9 @@ Orca is a `tmux`-backed multi-agent loop with one persistent git worktree per ag
 6. `agent-loop.sh` runs one agent pass per iteration, validates explicit `ORCA_BASE_REF` overrides on startup, creates a unique per-run branch using the same base-ref precedence as setup, writes per-run logs/metrics, parses the agent summary JSON, and applies deterministic no-work drain policy.
 7. `AGENT_PROMPT.md` defines the agent contract for issue lifecycle, merge, discovery, and summary output.
 8. `with-lock.sh` provides the shared lock primitive used by queue/merge helpers.
-9. `queue-write-main.sh` performs lock-guarded queue mutations on `ORCA_PRIMARY_REPO/main`.
-10. `merge-main.sh` performs lock-guarded merge/push and rejects `.beads`-carrying source branches.
+9. `queue-write-main.sh` performs lock-guarded queue mutations on `ORCA_PRIMARY_REPO/main` with explicit actor validation.
+10. `queue-mutate.sh` provides safe queue mutation wrappers (`claim`, `comment`, `close`, `dep-add`) routed through `queue-write-main.sh`.
+11. `merge-main.sh` performs lock-guarded merge/push and rejects `.beads`-carrying source branches.
 11. `gc-run-branches.sh` safely prunes stale local `swarm/*-run-*` branches with dry-run by default.
 12. `status.sh` provides health and observability snapshots, including `br` workspace checks.
 13. `wait.sh` blocks until scoped sessions complete and returns deterministic automation exit codes.
@@ -126,6 +129,7 @@ Orca is a `tmux`-backed multi-agent loop with one persistent git worktree per ag
 - `agent-loop.sh`: per-agent run loop that executes the prompt, captures run artifacts, and records summary/metrics
 - `with-lock.sh`: scoped lock wrapper primitive for serialized shared writes
 - `queue-write-main.sh`: lock-guarded queue mutation helper that imports/flushes and commits `.beads/` on `main`
+- `queue-mutate.sh`: constrained queue mutation wrapper with safe comment payload paths
 - `merge-main.sh`: lock-guarded merge helper with `.beads` source-branch guard and merge-failure cleanup
 - `gc-run-branches.sh`: safe stale run-branch pruning helper (dry-run default, protects active worktrees/sessions)
 - `status.sh`: displays sessions, worktrees, queue snapshots, logs, and metrics
@@ -145,7 +149,18 @@ Notes:
 3. non-default scopes use `<git-common-dir>/orca-global-<scope>.lock`
 4. keep each shared-target write transaction in one lock invocation
 
-### Queue Mutation Pattern (`queue-write-main.sh`)
+### Queue Mutation Pattern (`queue-mutate.sh` + `queue-write-main.sh`)
+
+Preferred wrapper form:
+
+```bash
+ISSUE_ID="<candidate-id>"
+"${ROOT}/queue-mutate.sh" \
+  --actor "${AGENT_NAME}" \
+  claim "${ISSUE_ID}"
+```
+
+Direct helper form (advanced):
 
 Queue mutation pattern for claim, comments, state transitions, discovery issue creation, and dependency edges:
 
@@ -164,6 +179,8 @@ Helper guarantees:
 2. `br sync --import-only` before queue command
 3. `br sync --flush-only` after queue command
 4. commit/push `.beads/` only when there are staged queue changes
+5. explicit `--actor` is required and must match inner `br --actor`
+6. `br comments add` must use file payload mode (`--file`)
 
 ### Merge Pattern (`merge-main.sh`)
 

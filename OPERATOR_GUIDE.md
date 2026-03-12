@@ -81,6 +81,8 @@ See `docs/setup.md` for the full onboarding procedure, manual auth/path steps, a
    - queue-write helper performs import/flush around each queue mutation
    - commit/push `.beads/` updates on `main` as part of write-helper workflow
 
+Tooling contract note: these queue-safety protections are enforced by scripts/helpers and covered by regression tests (`tests/regression_queue_mutation_guardrails.sh`), not by prompt-only instructions.
+
 Queue mutation and merge/push share one writer lock scope (`ORCA_LOCK_SCOPE`, default `merge`) so all local `main` writes serialize.
 Local source-of-truth policy: local `main` is the default base for local setup and per-run branch creation; `origin/main` remains a sync peer and fallback. If they diverge, Orca warns with ahead/behind counts and still defaults to local `main`.
 

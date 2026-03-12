@@ -9,12 +9,13 @@ Orca uses transport-focused loop orchestration while agents own task policy and 
 Current documentation:
 
 1. `README.md` (this file): technical reference and command/runtime details
-2. `docs/design.md`: purpose and design principles
-3. `docs/decision-log.md`: architecture/operating decisions and revisit triggers
-4. `docs/operating-modes.md`: proposed mode profiles (`execute|explore`) and experiment plan
-5. `AGENT_PROMPT.md`: active worker prompt contract
-6. `OPERATOR_GUIDE.md`: operator playbook
-7. `SESSION_PRIMER.md`: single-session interaction contract and quick-prime text
+2. `docs/setup.md`: operator onboarding flow for Ubuntu/WSL (`doctor -> bootstrap -> doctor`)
+3. `docs/design.md`: purpose and design principles
+4. `docs/decision-log.md`: architecture/operating decisions and revisit triggers
+5. `docs/operating-modes.md`: proposed mode profiles (`execute|explore`) and experiment plan
+6. `AGENT_PROMPT.md`: active worker prompt contract
+7. `OPERATOR_GUIDE.md`: operator playbook
+8. `SESSION_PRIMER.md`: single-session interaction contract and quick-prime text
 
 ## Entrypoints
 
@@ -25,6 +26,22 @@ Current documentation:
 ```bash
 br init
 br config set id.prefix orca
+```
+
+## Setup Quickstart (Ubuntu/WSL)
+
+Use the onboarding flow in `docs/setup.md` for complete troubleshooting/remediation guidance.
+
+```bash
+./orca.sh doctor
+./orca.sh bootstrap --yes
+./orca.sh doctor
+```
+
+Dry-run mode:
+
+```bash
+./orca.sh bootstrap --yes --dry-run
 ```
 
 ## Queue Sync + Concurrency Model

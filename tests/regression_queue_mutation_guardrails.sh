@@ -11,6 +11,8 @@ FAKE_GIT="${TMP_DIR}/git"
 GUARD_BR="${TMP_DIR}/br"
 FAKE_REPO="${TMP_DIR}/fake-repo"
 REAL_BR_CAPTURE="${TMP_DIR}/real-br-calls.txt"
+REAL_QUEUE_READ_CAPTURE="${TMP_DIR}/queue-read-calls.txt"
+FAKE_QUEUE_READ="${TMP_DIR}/fake-queue-read.sh"
 
 cleanup() {
   rm -rf "${TMP_DIR}"
@@ -89,6 +91,15 @@ exit 0
 EOF
 chmod +x "${FAKE_REAL_BR}"
 
+cat > "${FAKE_QUEUE_READ}" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+capture="${ORCA_QUEUE_READ_CAPTURE:?ORCA_QUEUE_READ_CAPTURE required}"
+printf '%s\n' "$*" >> "${capture}"
+echo "[]"
+EOF
+chmod +x "${FAKE_QUEUE_READ}"
+
 ln -s "${ROOT}/br-guard.sh" "${GUARD_BR}"
 
 if ORCA_BR_REAL_BIN="${FAKE_REAL_BR}" ORCA_BR_GUARD_POLICY_PATH="${ROOT}/lib/br-command-policy.sh" ORCA_REAL_BR_CAPTURE="${REAL_BR_CAPTURE}" "${GUARD_BR}" update orca-123 --claim --actor agent-1 --json >/dev/null 2>&1; then
@@ -98,6 +109,21 @@ fi
 
 ORCA_BR_REAL_BIN="${FAKE_REAL_BR}" ORCA_BR_GUARD_POLICY_PATH="${ROOT}/lib/br-command-policy.sh" ORCA_REAL_BR_CAPTURE="${REAL_BR_CAPTURE}" "${GUARD_BR}" ready --json >/dev/null
 assert_contains "${REAL_BR_CAPTURE}" "ready --json"
+
+: > "${REAL_BR_CAPTURE}"
+: > "${REAL_QUEUE_READ_CAPTURE}"
+ORCA_BR_REAL_BIN="${FAKE_REAL_BR}" \
+ORCA_BR_GUARD_POLICY_PATH="${ROOT}/lib/br-command-policy.sh" \
+ORCA_REAL_BR_CAPTURE="${REAL_BR_CAPTURE}" \
+ORCA_QUEUE_READ_MAIN_PATH="${FAKE_QUEUE_READ}" \
+ORCA_QUEUE_READ_CAPTURE="${REAL_QUEUE_READ_CAPTURE}" \
+"${GUARD_BR}" ready --json >/dev/null
+assert_contains "${REAL_QUEUE_READ_CAPTURE}" "br ready --json"
+if [[ -s "${REAL_BR_CAPTURE}" ]]; then
+  echo "expected br guard ready call to route via queue-read helper (real br should not be called directly)" >&2
+  cat "${REAL_BR_CAPTURE}" >&2
+  exit 1
+fi
 
 cat > "${FAKE_LOCK}" <<'EOF'
 #!/usr/bin/env bash
@@ -158,6 +184,10 @@ EOF
 chmod +x "${FAKE_GIT}"
 
 mkdir -p "${FAKE_REPO}/.beads"
+
+assert_fails \
+  "queue-read-main rejects mutation commands" \
+  bash "${ROOT}/queue-read-main.sh" -- br update orca-123 --claim --json
 
 PATH="${TMP_DIR}:${PATH}" \
 ORCA_BR_REAL_BIN="${FAKE_REAL_BR}" \

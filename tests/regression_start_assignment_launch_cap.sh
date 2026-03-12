@@ -31,6 +31,34 @@ EOF
   chmod +x "${TEST_ROOT}/${helper}"
 done
 
+cat > "${TEST_ROOT}/queue-read-main.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+while [[ $# -gt 0 ]]; do
+  if [[ "$1" == "--" ]]; then
+    shift
+    break
+  fi
+  shift
+done
+
+if [[ "${1:-}" == "br" && "${2:-}" == "ready" && "${3:-}" == "--json" ]]; then
+  cat <<'JSON'
+[
+  { "id": "orca-exclusive", "priority": 1, "created_at": "2026-03-01T00:00:01Z" },
+  { "id": "orca-normal-1", "priority": 2, "created_at": "2026-03-01T00:00:02Z" },
+  { "id": "orca-normal-2", "priority": 3, "created_at": "2026-03-01T00:00:03Z" }
+]
+JSON
+  exit 0
+fi
+
+echo "unexpected queue-read-main invocation: $*" >&2
+exit 1
+EOF
+chmod +x "${TEST_ROOT}/queue-read-main.sh"
+
 cat > "${TEST_BIN}/git" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -69,18 +97,6 @@ case "${1:-}" in
   doctor)
     echo "ok"
     exit 0
-    ;;
-  ready)
-    if [[ "${2:-}" == "--json" ]]; then
-      cat <<'JSON'
-[
-  { "id": "orca-exclusive", "priority": 1, "created_at": "2026-03-01T00:00:01Z" },
-  { "id": "orca-normal-1", "priority": 2, "created_at": "2026-03-01T00:00:02Z" },
-  { "id": "orca-normal-2", "priority": 3, "created_at": "2026-03-01T00:00:03Z" }
-]
-JSON
-      exit 0
-    fi
     ;;
 esac
 
@@ -223,6 +239,7 @@ output="$(
   ORCA_ASSIGNMENT_MODE="assigned" \
   ORCA_PRIMARY_REPO="${TEST_ROOT}" \
   ORCA_WITH_LOCK_PATH="${TEST_ROOT}/with-lock.sh" \
+  ORCA_QUEUE_READ_MAIN_PATH="${TEST_ROOT}/queue-read-main.sh" \
   ORCA_QUEUE_WRITE_MAIN_PATH="${TEST_ROOT}/queue-write-main.sh" \
   ORCA_MERGE_MAIN_PATH="${TEST_ROOT}/merge-main.sh" \
   ORCA_BR_GUARD_PATH="${TEST_ROOT}/br-guard.sh" \

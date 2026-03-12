@@ -456,6 +456,7 @@ check_helper_script() {
 }
 
 check_helper_script "${repo_root}/with-lock.sh" "helper.with_lock_executable" "with-lock helper is executable"
+check_helper_script "${repo_root}/queue-read-main.sh" "helper.queue_read_main_executable" "queue-read-main helper is executable"
 check_helper_script "${repo_root}/queue-write-main.sh" "helper.queue_write_main_executable" "queue-write-main helper is executable"
 check_helper_script "${repo_root}/merge-main.sh" "helper.merge_main_executable" "merge-main helper is executable"
 

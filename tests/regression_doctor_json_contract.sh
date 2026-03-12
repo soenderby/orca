@@ -43,6 +43,7 @@ jq -e '
   and ([.checks[].id] | index("queue.br_doctor") != null)
   and ([.checks[].id] | index("queue.id_prefix") != null)
   and ([.checks[].id] | index("helper.with_lock_executable") != null)
+  and ([.checks[].id] | index("helper.queue_read_main_executable") != null)
   and ([.checks[].id] | index("helper.queue_write_main_executable") != null)
   and ([.checks[].id] | index("helper.merge_main_executable") != null)
   and ([.checks[] | (.remediation.commands | type == "array")] | all)

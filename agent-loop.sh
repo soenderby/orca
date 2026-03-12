@@ -29,6 +29,7 @@ fi
 PROMPT_TEMPLATE="${PROMPT_TEMPLATE:-${ROOT}/AGENT_PROMPT.md}"
 PRIMARY_REPO="${ORCA_PRIMARY_REPO:-${ROOT}}"
 LOCK_HELPER_PATH="${ORCA_WITH_LOCK_PATH:-${ROOT}/with-lock.sh}"
+QUEUE_READ_HELPER_PATH="${ORCA_QUEUE_READ_MAIN_PATH:-${ROOT}/queue-read-main.sh}"
 QUEUE_WRITE_HELPER_PATH="${ORCA_QUEUE_WRITE_MAIN_PATH:-${ROOT}/queue-write-main.sh}"
 MERGE_HELPER_PATH="${ORCA_MERGE_MAIN_PATH:-${ROOT}/merge-main.sh}"
 MAX_RUNS="${MAX_RUNS:-0}"
@@ -132,6 +133,11 @@ fi
 
 if [[ ! -x "${LOCK_HELPER_PATH}" ]]; then
   echo "ORCA_WITH_LOCK_PATH must be executable: ${LOCK_HELPER_PATH}" >&2
+  exit 1
+fi
+
+if [[ ! -x "${QUEUE_READ_HELPER_PATH}" ]]; then
+  echo "ORCA_QUEUE_READ_MAIN_PATH must be executable: ${QUEUE_READ_HELPER_PATH}" >&2
   exit 1
 fi
 
@@ -340,6 +346,7 @@ start_run_artifacts() {
   log "summary json path: ${SUMMARY_JSON_FILE}"
   log "primary repo path: ${PRIMARY_REPO}"
   log "lock helper path: ${LOCK_HELPER_PATH}"
+  log "queue read helper path: ${QUEUE_READ_HELPER_PATH}"
   log "queue write helper path: ${QUEUE_WRITE_HELPER_PATH}"
   log "merge helper path: ${MERGE_HELPER_PATH}"
   log "harness version: ${HARNESS_VERSION}"
@@ -513,6 +520,8 @@ write_prompt_file() {
   prompt_text="${prompt_text//__ORCA_PRIMARY_REPO__/${PRIMARY_REPO}}"
   prompt_text="${prompt_text//__WITH_LOCK_PATH__/${LOCK_HELPER_PATH}}"
   prompt_text="${prompt_text//__ORCA_WITH_LOCK_PATH__/${LOCK_HELPER_PATH}}"
+  prompt_text="${prompt_text//__QUEUE_READ_MAIN_PATH__/${QUEUE_READ_HELPER_PATH}}"
+  prompt_text="${prompt_text//__ORCA_QUEUE_READ_MAIN_PATH__/${QUEUE_READ_HELPER_PATH}}"
   prompt_text="${prompt_text//__QUEUE_WRITE_MAIN_PATH__/${QUEUE_WRITE_HELPER_PATH}}"
   prompt_text="${prompt_text//__ORCA_QUEUE_WRITE_MAIN_PATH__/${QUEUE_WRITE_HELPER_PATH}}"
   prompt_text="${prompt_text//__MERGE_MAIN_PATH__/${MERGE_HELPER_PATH}}"
@@ -1003,6 +1012,7 @@ log "starting loop in ${WORKTREE}"
 log "session id: ${AGENT_SESSION_ID}"
 log "agent primary repo: ${PRIMARY_REPO}"
 log "agent lock helper: ${LOCK_HELPER_PATH}"
+log "agent queue read helper: ${QUEUE_READ_HELPER_PATH}"
 log "agent queue write helper: ${QUEUE_WRITE_HELPER_PATH}"
 log "agent merge helper: ${MERGE_HELPER_PATH}"
 log "agent br guard mode: ${ORCA_BR_GUARD_MODE}"
@@ -1069,6 +1079,7 @@ while true; do
     ORCA_AGENT_NAME="${AGENT_NAME}" \
     ORCA_PRIMARY_REPO="${PRIMARY_REPO}" \
     ORCA_WITH_LOCK_PATH="${LOCK_HELPER_PATH}" \
+    ORCA_QUEUE_READ_MAIN_PATH="${QUEUE_READ_HELPER_PATH}" \
     ORCA_QUEUE_WRITE_MAIN_PATH="${QUEUE_WRITE_HELPER_PATH}" \
     ORCA_MERGE_MAIN_PATH="${MERGE_HELPER_PATH}" \
     ORCA_ASSIGNMENT_MODE="${ORCA_ASSIGNMENT_MODE}" \

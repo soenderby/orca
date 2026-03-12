@@ -73,12 +73,12 @@ Run a preflight before first launch (or after environment changes):
 1. `br` collaboration is git-based and async (`.beads/issues.jsonl`), not a central queue server.
 2. `--claim` is atomic per SQLite DB snapshot.
 3. Orca agents run in separate worktrees, so stale snapshots can still race unless claims are published centrally.
-4. Orca policy uses `queue-write-main.sh` on `ORCA_PRIMARY_REPO/main` for queue mutations before/after coding as needed.
+4. Orca policy uses `queue-read-main.sh` on `ORCA_PRIMARY_REPO/main` for critical queue reads and `queue-write-main.sh` for queue mutations before/after coding as needed.
 5. Run branches must not carry `.beads/` changes; integration is code-only.
 6. Sync expectations:
-   - import before claim/select (`br sync --import-only`)
-   - queue helper performs import/flush around each queue mutation
-   - commit/push `.beads/` updates on `main` as part of helper workflow
+   - queue-read helper imports queue state before critical reads
+   - queue-write helper performs import/flush around each queue mutation
+   - commit/push `.beads/` updates on `main` as part of write-helper workflow
 
 Queue mutation and merge/push share one writer lock scope (`ORCA_LOCK_SCOPE`, default `merge`) so all local `main` writes serialize.
 Local source-of-truth policy: local `main` is the default base for local setup and per-run branch creation; `origin/main` remains a sync peer and fallback. If they diverge, Orca warns with ahead/behind counts and still defaults to local `main`.
@@ -186,7 +186,7 @@ Agent does:
 5. close issues via `ORCA_QUEUE_WRITE_MAIN_PATH`
 6. create follow-up issues when needed and write summary JSON
 
-Orca injects `ORCA_WITH_LOCK_PATH`, `ORCA_PRIMARY_REPO`, `ORCA_LOCK_SCOPE`, `ORCA_LOCK_TIMEOUT_SECONDS`, `ORCA_QUEUE_WRITE_MAIN_PATH`, `ORCA_MERGE_MAIN_PATH`, `ORCA_BASE_REF`, `ORCA_NO_WORK_DRAIN_MODE`, and `ORCA_NO_WORK_RETRY_LIMIT` into each run so helper scripts can use stable absolute paths.
+Orca injects `ORCA_WITH_LOCK_PATH`, `ORCA_PRIMARY_REPO`, `ORCA_LOCK_SCOPE`, `ORCA_LOCK_TIMEOUT_SECONDS`, `ORCA_QUEUE_READ_MAIN_PATH`, `ORCA_QUEUE_WRITE_MAIN_PATH`, `ORCA_MERGE_MAIN_PATH`, `ORCA_BASE_REF`, `ORCA_NO_WORK_DRAIN_MODE`, and `ORCA_NO_WORK_RETRY_LIMIT` into each run so helper scripts can use stable absolute paths.
 `ORCA_PRIMARY_REPO` defaults to repo root and must be a valid git worktree; `ORCA_WITH_LOCK_PATH` defaults to `<repo-root>/with-lock.sh` and must be executable.
 
 ## Operating Playbook
@@ -195,7 +195,7 @@ Orca injects `ORCA_WITH_LOCK_PATH`, `ORCA_PRIMARY_REPO`, `ORCA_LOCK_SCOPE`, `ORC
 
 ```bash
 git pull --rebase
-br sync --import-only
+"${ORCA_QUEUE_READ_MAIN_PATH}" --fallback error -- br ready --json >/dev/null
 ./orca.sh start 2 --continuous
 ./orca.sh status
 ```
@@ -203,7 +203,7 @@ br sync --import-only
 ### Live Checks
 
 ```bash
-br ready --json
+"${ORCA_QUEUE_READ_MAIN_PATH}" --fallback error -- br ready --json
 br list --status in_progress --limit 50
 br list --status closed --sort updated --reverse --limit 20
 ```

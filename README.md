@@ -128,6 +128,7 @@ Orca is a `tmux`-backed multi-agent loop with one persistent git worktree per ag
 - `plan.sh`: deterministic assignment planner with machine-readable output
 - `agent-loop.sh`: per-agent run loop that executes the prompt, captures run artifacts, and records summary/metrics
 - `with-lock.sh`: scoped lock wrapper primitive for serialized shared writes
+- `queue-read-main.sh`: lock-guarded queue read helper pinned to `ORCA_PRIMARY_REPO/main` with deterministic fallback modes
 - `queue-write-main.sh`: lock-guarded queue mutation helper that imports/flushes and commits `.beads/` on `main`
 - `queue-mutate.sh`: constrained queue mutation wrapper with safe comment payload paths
 - `merge-main.sh`: lock-guarded merge helper with `.beads` source-branch guard and merge-failure cleanup
@@ -182,6 +183,25 @@ Helper guarantees:
 5. explicit `--actor` is required and must match inner `br --actor`
 6. `br comments add` must use file payload mode (`--file`)
 7. helper executes queue `br` commands via resolved real `br` binary (`ORCA_BR_REAL_BIN` when provided), so run-time guard shims do not block approved helper workflows
+
+### Queue Read Pattern (`queue-read-main.sh`)
+
+Use primary-repo queue reads for critical run/planner operations:
+
+```bash
+"${ORCA_QUEUE_READ_MAIN_PATH}" \
+  --fallback error \
+  -- \
+  br ready --json
+```
+
+Helper guarantees:
+
+1. lock-guarded read against `ORCA_PRIMARY_REPO/main`
+2. imports queue state before running read commands
+3. enforces read-only `br` subcommands
+4. supports deterministic fallback policy (`error` or `worktree`)
+5. logs queue read source (`primary`, `worktree`, or unavailable error)
 
 ### Merge Pattern (`merge-main.sh`)
 
@@ -263,7 +283,7 @@ Preflight checks (read-only):
 5. remote reachability/auth is reported separately as a warning (`git ls-remote origin`)
 6. local git identity exists (`user.name`, `user.email`)
 7. queue workspace health (`.beads/` exists, `br doctor`, `br config get id.prefix`)
-8. helper scripts are present and executable (`with-lock.sh`, `queue-write-main.sh`, `merge-main.sh`)
+8. helper scripts are present and executable (`with-lock.sh`, `queue-read-main.sh`, `queue-write-main.sh`, `merge-main.sh`)
 9. `--json` emits stable check IDs, statuses, severities, and structured remediation commands
 10. command exits non-zero when any hard requirement fails
 
@@ -288,7 +308,7 @@ Startup checks:
 15. `AGENT_REASONING_LEVEL` (if set) matches `[A-Za-z0-9._-]+`
 16. `PROMPT_TEMPLATE` exists
 17. `ORCA_PRIMARY_REPO` points to a valid git worktree
-18. `ORCA_WITH_LOCK_PATH`, `ORCA_QUEUE_WRITE_MAIN_PATH`, and `ORCA_MERGE_MAIN_PATH` are executable
+18. `ORCA_WITH_LOCK_PATH`, `ORCA_QUEUE_READ_MAIN_PATH`, `ORCA_QUEUE_WRITE_MAIN_PATH`, and `ORCA_MERGE_MAIN_PATH` are executable
 
 Behavior:
 
@@ -323,8 +343,9 @@ Input/env validation:
 12. `PROMPT_TEMPLATE` exists
 13. `ORCA_PRIMARY_REPO` points to a valid git worktree
 14. `ORCA_WITH_LOCK_PATH` points to an executable helper
-15. `ORCA_QUEUE_WRITE_MAIN_PATH` points to an executable helper
-16. `ORCA_MERGE_MAIN_PATH` points to an executable helper
+15. `ORCA_QUEUE_READ_MAIN_PATH` points to an executable helper
+16. `ORCA_QUEUE_WRITE_MAIN_PATH` points to an executable helper
+17. `ORCA_MERGE_MAIN_PATH` points to an executable helper
 
 Signal handling:
 
@@ -433,11 +454,11 @@ Archived legacy logs:
 
 Primary repo and helper paths are injected to agents as:
 
-- prompt placeholders: `__PRIMARY_REPO__`, `__ORCA_PRIMARY_REPO__`, `__WITH_LOCK_PATH__`, `__ORCA_WITH_LOCK_PATH__`, `__QUEUE_WRITE_MAIN_PATH__`, `__ORCA_QUEUE_WRITE_MAIN_PATH__`, `__MERGE_MAIN_PATH__`, `__ORCA_MERGE_MAIN_PATH__`
-- env vars: `ORCA_PRIMARY_REPO`, `ORCA_WITH_LOCK_PATH`, `ORCA_QUEUE_WRITE_MAIN_PATH`, `ORCA_MERGE_MAIN_PATH`
+- prompt placeholders: `__PRIMARY_REPO__`, `__ORCA_PRIMARY_REPO__`, `__WITH_LOCK_PATH__`, `__ORCA_WITH_LOCK_PATH__`, `__QUEUE_READ_MAIN_PATH__`, `__ORCA_QUEUE_READ_MAIN_PATH__`, `__QUEUE_WRITE_MAIN_PATH__`, `__ORCA_QUEUE_WRITE_MAIN_PATH__`, `__MERGE_MAIN_PATH__`, `__ORCA_MERGE_MAIN_PATH__`
+- env vars: `ORCA_PRIMARY_REPO`, `ORCA_WITH_LOCK_PATH`, `ORCA_QUEUE_READ_MAIN_PATH`, `ORCA_QUEUE_WRITE_MAIN_PATH`, `ORCA_MERGE_MAIN_PATH`
 - assignment env vars: `ORCA_ASSIGNMENT_MODE`, `ORCA_ASSIGNED_ISSUE_ID`
 
-`start.sh` sets these values at launch time; if `agent-loop.sh` is run directly, it applies the same defaults (`<repo-root>`, `<repo-root>/with-lock.sh`, `<repo-root>/queue-write-main.sh`, `<repo-root>/merge-main.sh`) and the same validation rules.
+`start.sh` sets these values at launch time; if `agent-loop.sh` is run directly, it applies the same defaults (`<repo-root>`, `<repo-root>/with-lock.sh`, `<repo-root>/queue-read-main.sh`, `<repo-root>/queue-write-main.sh`, `<repo-root>/merge-main.sh`) and the same validation rules.
 
 ## Runtime Knobs
 
@@ -461,6 +482,7 @@ Primary repo and helper paths are injected to agents as:
 - `ORCA_ASSIGNED_ISSUE_ID`: assigned issue ID for the current run; required in `assigned` mode and empty in `self-select`
 - `ORCA_PRIMARY_REPO`: primary repository path used for lock-guarded claim publication and merge/push operations; defaults to repo root in both `start.sh` and `agent-loop.sh`, and must be a valid git worktree
 - `ORCA_WITH_LOCK_PATH`: absolute path to lock helper passed to agents; defaults to `<repo-root>/with-lock.sh` in both `start.sh` and `agent-loop.sh`, and must be executable
+- `ORCA_QUEUE_READ_MAIN_PATH`: absolute path to queue read helper passed to agents (default `<repo-root>/queue-read-main.sh`)
 - `ORCA_QUEUE_WRITE_MAIN_PATH`: absolute path to queue mutation helper passed to agents (default `<repo-root>/queue-write-main.sh`)
 - `ORCA_MERGE_MAIN_PATH`: absolute path to merge helper passed to agents (default `<repo-root>/merge-main.sh`)
 - `ORCA_BR_GUARD_PATH`: absolute path to run-time `br` guard shim (default `<repo-root>/br-guard.sh`)

@@ -8,6 +8,8 @@ usage() {
   cat <<'USAGE'
 Usage:
   plan.sh [--slots N] [--output PATH] [--ready-json PATH] [--issues-jsonl PATH]
+          [--queue-read-helper PATH] [--primary-repo PATH]
+          [--lock-helper PATH] [--scope NAME] [--timeout SECONDS]
 
 Options:
   --slots N         Max assignments to include in the plan (default: 1)
@@ -15,6 +17,14 @@ Options:
   --ready-json PATH Read ready issues JSON array from PATH instead of `br ready --json`
   --issues-jsonl PATH
                     Read queue issue snapshot from PATH (default: .beads/issues.jsonl)
+  --queue-read-helper PATH
+                    Use queue-read-main helper for ready query (default: ORCA_QUEUE_READ_MAIN_PATH)
+  --primary-repo PATH
+                    Primary repo path for queue-read helper (default: ORCA_PRIMARY_REPO or repo root)
+  --lock-helper PATH
+                    Lock helper path for queue-read helper (default: ORCA_WITH_LOCK_PATH or ./with-lock.sh)
+  --scope NAME      Lock scope for queue-read helper (default: ORCA_LOCK_SCOPE or merge)
+  --timeout SECONDS Lock timeout for queue-read helper (default: ORCA_LOCK_TIMEOUT_SECONDS or 120)
 USAGE
 }
 
@@ -22,6 +32,11 @@ SLOTS=1
 OUTPUT_PATH=""
 READY_JSON_PATH=""
 ISSUES_JSONL_PATH="${ROOT}/.beads/issues.jsonl"
+QUEUE_READ_HELPER_PATH="${ORCA_QUEUE_READ_MAIN_PATH:-}"
+PRIMARY_REPO_PATH="${ORCA_PRIMARY_REPO:-${ROOT}}"
+LOCK_HELPER_PATH="${ORCA_WITH_LOCK_PATH:-${ROOT}/with-lock.sh}"
+LOCK_SCOPE="${ORCA_LOCK_SCOPE:-merge}"
+LOCK_TIMEOUT_SECONDS="${ORCA_LOCK_TIMEOUT_SECONDS:-120}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -55,6 +70,46 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       ISSUES_JSONL_PATH="$2"
+      shift 2
+      ;;
+    --queue-read-helper)
+      if [[ $# -lt 2 ]]; then
+        echo "[plan] --queue-read-helper requires a path argument" >&2
+        exit 1
+      fi
+      QUEUE_READ_HELPER_PATH="$2"
+      shift 2
+      ;;
+    --primary-repo)
+      if [[ $# -lt 2 ]]; then
+        echo "[plan] --primary-repo requires a path argument" >&2
+        exit 1
+      fi
+      PRIMARY_REPO_PATH="$2"
+      shift 2
+      ;;
+    --lock-helper)
+      if [[ $# -lt 2 ]]; then
+        echo "[plan] --lock-helper requires a path argument" >&2
+        exit 1
+      fi
+      LOCK_HELPER_PATH="$2"
+      shift 2
+      ;;
+    --scope)
+      if [[ $# -lt 2 ]]; then
+        echo "[plan] --scope requires a name argument" >&2
+        exit 1
+      fi
+      LOCK_SCOPE="$2"
+      shift 2
+      ;;
+    --timeout|--lock-timeout)
+      if [[ $# -lt 2 ]]; then
+        echo "[plan] --timeout requires a seconds argument" >&2
+        exit 1
+      fi
+      LOCK_TIMEOUT_SECONDS="$2"
       shift 2
       ;;
     -h|--help)
@@ -92,9 +147,28 @@ if [[ -n "${READY_JSON_PATH}" ]]; then
   fi
   ready_json="$(cat "${READY_JSON_PATH}")"
 else
-  if ! ready_json="$(br ready --json 2>/dev/null)"; then
-    echo "[plan] failed to query ready issues via br ready --json" >&2
-    exit 1
+  if [[ -n "${QUEUE_READ_HELPER_PATH}" ]]; then
+    if [[ ! -x "${QUEUE_READ_HELPER_PATH}" ]]; then
+      echo "[plan] queue-read helper is not executable: ${QUEUE_READ_HELPER_PATH}" >&2
+      exit 1
+    fi
+    if ! ready_json="$("${QUEUE_READ_HELPER_PATH}" \
+      --repo "${PRIMARY_REPO_PATH}" \
+      --lock-helper "${LOCK_HELPER_PATH}" \
+      --scope "${LOCK_SCOPE}" \
+      --timeout "${LOCK_TIMEOUT_SECONDS}" \
+      --fallback error \
+      --worktree "${ROOT}" \
+      -- \
+      br ready --json 2>/dev/null)"; then
+      echo "[plan] failed to query ready issues via queue-read helper" >&2
+      exit 1
+    fi
+  else
+    if ! ready_json="$(br ready --json 2>/dev/null)"; then
+      echo "[plan] failed to query ready issues via br ready --json" >&2
+      exit 1
+    fi
   fi
 fi
 

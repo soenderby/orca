@@ -20,6 +20,7 @@ Commands:
   gc-run-branches [--apply] [--base REF]
   setup-worktrees [count]
   with-lock [--scope NAME] [--timeout SECONDS] -- <command> [args...]
+  queue-read-main [options] -- <queue-read-command> [args...]
   queue-write-main [options] -- <queue-command> [args...]
   queue-mutate [options] <mutation> [args...]
   merge-main [--source BRANCH] [options]
@@ -64,6 +65,9 @@ case "${subcommand}" in
     ;;
   queue-write-main|queue-write)
     exec "${SCRIPT_DIR}/queue-write-main.sh" "$@"
+    ;;
+  queue-read-main|queue-read)
+    exec "${SCRIPT_DIR}/queue-read-main.sh" "$@"
     ;;
   queue-mutate|queue)
     exec "${SCRIPT_DIR}/queue-mutate.sh" "$@"

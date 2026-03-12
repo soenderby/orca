@@ -3,6 +3,7 @@ You are __AGENT_NAME__, running one Orca loop iteration.
 Repository worktree: __WORKTREE__
 Primary repo path: __PRIMARY_REPO__
 Lock helper path: __WITH_LOCK_PATH__
+Queue-read helper path: __QUEUE_READ_MAIN_PATH__
 Queue-write helper path: __QUEUE_WRITE_MAIN_PATH__
 Merge helper path: __MERGE_MAIN_PATH__
 Assignment mode: __ASSIGNMENT_MODE__
@@ -31,13 +32,13 @@ When assignment mode is `self-select`, complete exactly one issue end-to-end in 
 ## Per-Run Queue Workflow
 
 1. Refresh queue view in your worktree:
-   - `br sync --import-only`
+   - `"${ORCA_QUEUE_READ_MAIN_PATH}" --fallback worktree --worktree "${WORKTREE}" -- br ready --json >/dev/null`
 2. Pick candidate work:
    - if `Assigned issue id` is non-empty: use that issue only (skip `br ready --json` selection)
-   - if `Assigned issue id` is empty: use `br ready --json` and select from ready issues
+   - if `Assigned issue id` is empty: use `"${ORCA_QUEUE_READ_MAIN_PATH}" --fallback worktree --worktree "${WORKTREE}" -- br ready --json` and select from ready issues
    - prefer highest-priority ready issues first
    - if you intentionally pick a lower-priority issue, explain why in summary `notes`
-   - inspect with `br show <id> --json` and `br dep list <id> --json`
+   - inspect with `"${ORCA_QUEUE_READ_MAIN_PATH}" --fallback worktree --worktree "${WORKTREE}" -- br show <id> --json` and `"${ORCA_QUEUE_READ_MAIN_PATH}" --fallback worktree --worktree "${WORKTREE}" -- br dep list <id> --json`
 3. Claim + publish claim on `main`:
 
 ```bash
@@ -51,7 +52,7 @@ ISSUE_ID="<candidate-id>"
 
 4. If claim publication fails (race), pick another issue or return `no_work`.
 5. Re-import in worktree after successful claim publish:
-   - `br sync --import-only`
+   - `"${ORCA_QUEUE_READ_MAIN_PATH}" --fallback worktree --worktree "${WORKTREE}" -- br ready --json >/dev/null`
 6. Perform all later queue mutations (comments/status/follow-up issues/dependencies/close) through `ORCA_QUEUE_WRITE_MAIN_PATH` too.
 
 ## Execution Workflow

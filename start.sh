@@ -46,6 +46,7 @@ ORCA_ALLOW_UNSAFE_BR_MUTATIONS="${ORCA_ALLOW_UNSAFE_BR_MUTATIONS:-0}"
 ORCA_BR_GUARD_PATH="${ORCA_BR_GUARD_PATH:-}"
 ORCA_PRIMARY_REPO="${ORCA_PRIMARY_REPO:-}"
 ORCA_WITH_LOCK_PATH="${ORCA_WITH_LOCK_PATH:-}"
+ORCA_QUEUE_READ_MAIN_PATH="${ORCA_QUEUE_READ_MAIN_PATH:-}"
 ORCA_QUEUE_WRITE_MAIN_PATH="${ORCA_QUEUE_WRITE_MAIN_PATH:-}"
 ORCA_MERGE_MAIN_PATH="${ORCA_MERGE_MAIN_PATH:-}"
 ORCA_BASE_REF="${ORCA_BASE_REF:-}"
@@ -189,13 +190,21 @@ ready_issue_count() {
   local ready_json
   local ready_count
 
-  if ! ready_json="$(br ready --json 2>/dev/null)"; then
-    echo "[start] failed to query ready issues via br ready --json" >&2
+  if ! ready_json="$("${ORCA_QUEUE_READ_MAIN_PATH}" \
+    --repo "${ORCA_PRIMARY_REPO}" \
+    --lock-helper "${ORCA_WITH_LOCK_PATH}" \
+    --scope "${ORCA_LOCK_SCOPE}" \
+    --timeout "${ORCA_LOCK_TIMEOUT_SECONDS}" \
+    --fallback error \
+    --worktree "${ROOT}" \
+    -- \
+    br ready --json 2>/dev/null)"; then
+    echo "[start] failed to query ready issues via queue-read-main helper" >&2
     return 1
   fi
 
   if ! ready_count="$(jq -re 'if type == "array" then length else error("ready output must be an array") end' <<< "${ready_json}" 2>/dev/null)"; then
-    echo "[start] unable to parse ready issue count from br ready --json output" >&2
+    echo "[start] unable to parse ready issue count from queue-read-main helper output" >&2
     return 1
   fi
 
@@ -211,7 +220,14 @@ build_assignment_plan() {
   plan_dir="${ROOT}/agent-logs/plans/$(date -u +%Y/%m/%d)"
   plan_path="${plan_dir}/start-plan-$(date -u +%Y%m%dT%H%M%SZ)-$$.json"
 
-  if ! plan_json="$("${SCRIPT_DIR}/plan.sh" --slots "${slots}" --output "${plan_path}")"; then
+  if ! plan_json="$("${SCRIPT_DIR}/plan.sh" \
+    --slots "${slots}" \
+    --output "${plan_path}" \
+    --queue-read-helper "${ORCA_QUEUE_READ_MAIN_PATH}" \
+    --primary-repo "${ORCA_PRIMARY_REPO}" \
+    --lock-helper "${ORCA_WITH_LOCK_PATH}" \
+    --scope "${ORCA_LOCK_SCOPE}" \
+    --timeout "${ORCA_LOCK_TIMEOUT_SECONDS}")"; then
     echo "[start] planner failed for assigned mode (slots=${slots})" >&2
     return 1
   fi
@@ -287,6 +303,7 @@ ROOT="$(git rev-parse --show-toplevel)"
 PROMPT_TEMPLATE="${PROMPT_TEMPLATE:-${ROOT}/AGENT_PROMPT.md}"
 ORCA_PRIMARY_REPO="${ORCA_PRIMARY_REPO:-${ROOT}}"
 ORCA_WITH_LOCK_PATH="${ORCA_WITH_LOCK_PATH:-${ROOT}/with-lock.sh}"
+ORCA_QUEUE_READ_MAIN_PATH="${ORCA_QUEUE_READ_MAIN_PATH:-${ROOT}/queue-read-main.sh}"
 ORCA_QUEUE_WRITE_MAIN_PATH="${ORCA_QUEUE_WRITE_MAIN_PATH:-${ROOT}/queue-write-main.sh}"
 ORCA_MERGE_MAIN_PATH="${ORCA_MERGE_MAIN_PATH:-${ROOT}/merge-main.sh}"
 ORCA_BR_GUARD_PATH="${ORCA_BR_GUARD_PATH:-${ROOT}/br-guard.sh}"
@@ -386,6 +403,11 @@ fi
 
 if [[ ! -x "${ORCA_WITH_LOCK_PATH}" ]]; then
   echo "[start] ORCA_WITH_LOCK_PATH must be executable: ${ORCA_WITH_LOCK_PATH}" >&2
+  exit 1
+fi
+
+if [[ ! -x "${ORCA_QUEUE_READ_MAIN_PATH}" ]]; then
+  echo "[start] ORCA_QUEUE_READ_MAIN_PATH must be executable: ${ORCA_QUEUE_READ_MAIN_PATH}" >&2
   exit 1
 fi
 
@@ -509,7 +531,7 @@ for i in $(seq 1 "${COUNT}"); do
   fi
 
   echo "[start] launching ${session} in ${worktree}"
-  tmux_cmd="$(printf "cd %q && AGENT_NAME=%q AGENT_SESSION_ID=%q WORKTREE=%q AGENT_MODEL=%q AGENT_REASONING_LEVEL=%q AGENT_COMMAND=%q PROMPT_TEMPLATE=%q MAX_RUNS=%q RUN_SLEEP_SECONDS=%q ORCA_TIMING_METRICS=%q ORCA_COMPACT_SUMMARY=%q ORCA_ASSIGNMENT_MODE=%q ORCA_ASSIGNED_ISSUE_ID=%q ORCA_PRIMARY_REPO=%q ORCA_WITH_LOCK_PATH=%q ORCA_LOCK_SCOPE=%q ORCA_LOCK_TIMEOUT_SECONDS=%q ORCA_NO_WORK_DRAIN_MODE=%q ORCA_NO_WORK_RETRY_LIMIT=%q ORCA_MODE_ID=%q ORCA_WORK_APPROACH_FILE=%q ORCA_QUEUE_WRITE_MAIN_PATH=%q ORCA_MERGE_MAIN_PATH=%q ORCA_BR_GUARD_MODE=%q ORCA_ALLOW_UNSAFE_BR_MUTATIONS=%q ORCA_BR_GUARD_PATH=%q ORCA_BASE_REF=%q %q" \
+  tmux_cmd="$(printf "cd %q && AGENT_NAME=%q AGENT_SESSION_ID=%q WORKTREE=%q AGENT_MODEL=%q AGENT_REASONING_LEVEL=%q AGENT_COMMAND=%q PROMPT_TEMPLATE=%q MAX_RUNS=%q RUN_SLEEP_SECONDS=%q ORCA_TIMING_METRICS=%q ORCA_COMPACT_SUMMARY=%q ORCA_ASSIGNMENT_MODE=%q ORCA_ASSIGNED_ISSUE_ID=%q ORCA_PRIMARY_REPO=%q ORCA_WITH_LOCK_PATH=%q ORCA_LOCK_SCOPE=%q ORCA_LOCK_TIMEOUT_SECONDS=%q ORCA_NO_WORK_DRAIN_MODE=%q ORCA_NO_WORK_RETRY_LIMIT=%q ORCA_MODE_ID=%q ORCA_WORK_APPROACH_FILE=%q ORCA_QUEUE_READ_MAIN_PATH=%q ORCA_QUEUE_WRITE_MAIN_PATH=%q ORCA_MERGE_MAIN_PATH=%q ORCA_BR_GUARD_MODE=%q ORCA_ALLOW_UNSAFE_BR_MUTATIONS=%q ORCA_BR_GUARD_PATH=%q ORCA_BASE_REF=%q %q" \
     "${ROOT}" \
     "agent-${i}" \
     "${session_id}" \
@@ -532,6 +554,7 @@ for i in $(seq 1 "${COUNT}"); do
     "${ORCA_NO_WORK_RETRY_LIMIT}" \
     "${ORCA_MODE_ID}" \
     "${ORCA_WORK_APPROACH_FILE}" \
+    "${ORCA_QUEUE_READ_MAIN_PATH}" \
     "${ORCA_QUEUE_WRITE_MAIN_PATH}" \
     "${ORCA_MERGE_MAIN_PATH}" \
     "${ORCA_BR_GUARD_MODE}" \

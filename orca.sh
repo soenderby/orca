@@ -15,6 +15,7 @@ Commands:
   start [count] [--runs N|--continuous] [--drain|--watch] [--no-work-retries N] [--reasoning-level LEVEL]
   stop
   status [--quick|--full]
+  wait [--timeout SECONDS] [--session-id ID] [--session-prefix PREFIX] [--json]
   plan [--slots N] [--output PATH]
   gc-run-branches [--apply] [--base REF]
   setup-worktrees [count]
@@ -44,6 +45,9 @@ case "${subcommand}" in
     ;;
   status)
     exec "${SCRIPT_DIR}/status.sh" "$@"
+    ;;
+  wait)
+    exec "${SCRIPT_DIR}/wait.sh" "$@"
     ;;
   plan)
     exec "${SCRIPT_DIR}/plan.sh" "$@"

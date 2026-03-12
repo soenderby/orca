@@ -77,6 +77,7 @@ Operating stance: autonomy with explicit protocol guidance (Option C; see `docs/
 - `doctor [--json]`
 - `stop`
 - `status [--quick|--full] [--session-id ID] [--session-prefix PREFIX]`
+- `wait [--timeout SECONDS] [--poll-interval SECONDS] [--session-id ID] [--session-prefix PREFIX] [--json]`
 - `plan [--slots N] [--output PATH]`
 - `gc-run-branches [--apply] [--base REF]`
 - `setup-worktrees [count]`
@@ -111,7 +112,8 @@ Orca is a `tmux`-backed multi-agent loop with one persistent git worktree per ag
 10. `merge-main.sh` performs lock-guarded merge/push and rejects `.beads`-carrying source branches.
 11. `gc-run-branches.sh` safely prunes stale local `swarm/*-run-*` branches with dry-run by default.
 12. `status.sh` provides health and observability snapshots, including `br` workspace checks.
-13. `stop.sh` terminates active sessions.
+13. `wait.sh` blocks until scoped sessions complete and returns deterministic automation exit codes.
+14. `stop.sh` terminates active sessions.
 
 ## File Roles
 
@@ -127,6 +129,7 @@ Orca is a `tmux`-backed multi-agent loop with one persistent git worktree per ag
 - `merge-main.sh`: lock-guarded merge helper with `.beads` source-branch guard and merge-failure cleanup
 - `gc-run-branches.sh`: safe stale run-branch pruning helper (dry-run default, protects active worktrees/sessions)
 - `status.sh`: displays sessions, worktrees, queue snapshots, logs, and metrics
+- `wait.sh`: blocking completion monitor for scoped sessions with deterministic exit codes
 - `stop.sh`: stops active agent sessions
 - `AGENT_PROMPT.md`: agent instruction contract used by `agent-loop.sh`
 - `OPERATOR_GUIDE.md`: human operator playbook and design rationale
@@ -336,6 +339,26 @@ Tuning knobs:
 Performance regression check:
 
 - `bash tests/status_metrics_perf_check.sh`
+
+### `wait.sh`
+
+1. blocks until scoped sessions reach terminal summary state
+2. supports session scoping with `--session-id` (exact) and `--session-prefix` (prefix)
+3. supports bounded waiting via `--timeout SECONDS` and deterministic polling via `--poll-interval SECONDS`
+4. does not full-scan `metrics.jsonl` on each poll; it inspects scoped session run artifacts
+5. emits concise final rollup by default; `--json` emits machine-readable final state
+6. no scoped sessions at invocation is treated as immediate success with reason `no_scoped_sessions`
+
+Exit codes:
+
+- `0`: success (`all_scoped_sessions_finished` or `no_scoped_sessions`)
+- `2`: timeout
+- `3`: scoped failure detected (`failed`/`blocked` summary result or non-zero run exit marker)
+- `4`: invalid usage/config
+
+Regression check:
+
+- `bash tests/regression_wait_command.sh`
 
 ## Error Handling Model
 

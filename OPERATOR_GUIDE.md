@@ -50,6 +50,15 @@ Also ensure:
 4. queue ID prefix is configured (`br config set id.prefix orca`, once)
 5. queue has actionable work (`br ready --json`)
 
+Run a preflight before first launch (or after environment changes):
+
+```bash
+./orca.sh doctor
+./orca.sh doctor --json
+```
+
+`doctor` is read-only and returns a non-zero exit code only for hard requirement failures.
+
 ## Queue Sync and Concurrency Model
 
 1. `br` collaboration is git-based and async (`.beads/issues.jsonl`), not a central queue server.

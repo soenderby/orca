@@ -10,6 +10,7 @@ Usage:
   ${USAGE_PREFIX} <command> [args]
 
 Commands:
+  doctor [--json]
   start [count] [--runs N|--continuous] [--drain|--watch] [--no-work-retries N] [--reasoning-level LEVEL]
   stop
   status [--quick|--full]
@@ -30,6 +31,9 @@ fi
 case "${subcommand}" in
   start)
     exec "${SCRIPT_DIR}/start.sh" "$@"
+    ;;
+  doctor)
+    exec "${SCRIPT_DIR}/doctor.sh" "$@"
     ;;
   stop)
     exec "${SCRIPT_DIR}/stop.sh" "$@"

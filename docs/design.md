@@ -22,6 +22,7 @@ Current hard guardrails:
 - Run branches carrying `.beads/` changes are rejected during merge (`merge-main.sh` guard).
 - Primary repo must be clean before queue/merge helper operations.
 - Clean worktree required before starting a non-running agent session.
+- Run-time `br` guard blocks direct mutation subcommands in agent worktrees; queue mutations must route through `queue-write-main.sh`.
 - Run summary JSON is required and schema-validated by the loop.
 
 Current protocol expectations (explicit, not hard-blocked in all paths):

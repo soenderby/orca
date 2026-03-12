@@ -5,6 +5,12 @@ ROOT="$(git rev-parse --show-toplevel)"
 TMP_DIR="$(mktemp -d)"
 FAKE_QUEUE_WRITE="${TMP_DIR}/fake-queue-write.sh"
 CAPTURE="${TMP_DIR}/captured-args.txt"
+FAKE_REAL_BR="${TMP_DIR}/fake-real-br.sh"
+FAKE_LOCK="${TMP_DIR}/fake-lock.sh"
+FAKE_GIT="${TMP_DIR}/git"
+GUARD_BR="${TMP_DIR}/br"
+FAKE_REPO="${TMP_DIR}/fake-repo"
+REAL_BR_CAPTURE="${TMP_DIR}/real-br-calls.txt"
 
 cleanup() {
   rm -rf "${TMP_DIR}"
@@ -63,5 +69,108 @@ assert_contains "${CAPTURE}" "--actor"
 assert_contains "${CAPTURE}" "agent-1"
 assert_contains "${CAPTURE}" "--file"
 assert_contains "${CAPTURE}" "--author"
+
+cat > "${FAKE_REAL_BR}" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+capture="${ORCA_REAL_BR_CAPTURE:?ORCA_REAL_BR_CAPTURE required}"
+printf '%s\n' "$*" >> "${capture}"
+if [[ "${1:-}" == "update" ]]; then
+  exit 0
+fi
+if [[ "${1:-}" == "sync" ]]; then
+  exit 0
+fi
+if [[ "${1:-}" == "ready" ]]; then
+  echo "[]"
+  exit 0
+fi
+exit 0
+EOF
+chmod +x "${FAKE_REAL_BR}"
+
+ln -s "${ROOT}/br-guard.sh" "${GUARD_BR}"
+
+if ORCA_BR_REAL_BIN="${FAKE_REAL_BR}" ORCA_BR_GUARD_POLICY_PATH="${ROOT}/lib/br-command-policy.sh" ORCA_REAL_BR_CAPTURE="${REAL_BR_CAPTURE}" "${GUARD_BR}" update orca-123 --claim --actor agent-1 --json >/dev/null 2>&1; then
+  echo "expected br guard to block direct update mutation" >&2
+  exit 1
+fi
+
+ORCA_BR_REAL_BIN="${FAKE_REAL_BR}" ORCA_BR_GUARD_POLICY_PATH="${ROOT}/lib/br-command-policy.sh" ORCA_REAL_BR_CAPTURE="${REAL_BR_CAPTURE}" "${GUARD_BR}" ready --json >/dev/null
+assert_contains "${REAL_BR_CAPTURE}" "ready --json"
+
+cat > "${FAKE_LOCK}" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+while [[ $# -gt 0 ]]; do
+  if [[ "$1" == "--" ]]; then
+    shift
+    break
+  fi
+  shift
+done
+"$@"
+EOF
+chmod +x "${FAKE_LOCK}"
+
+cat > "${FAKE_GIT}" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "-C" ]]; then
+  repo="${2:-}"
+  shift 2
+  case "${1:-}" in
+    rev-parse)
+      if [[ "${2:-}" == "--is-inside-work-tree" ]]; then
+        [[ -d "${repo}" ]] || exit 1
+        echo "true"
+        exit 0
+      fi
+      ;;
+    branch)
+      if [[ "${2:-}" == "--show-current" ]]; then
+        echo "main"
+        exit 0
+      fi
+      ;;
+    diff)
+      if [[ "${2:-}" == "--quiet" || ( "${2:-}" == "--cached" && "${3:-}" == "--quiet" ) ]]; then
+        exit 0
+      fi
+      ;;
+    fetch|checkout|pull|add)
+      exit 0
+      ;;
+  esac
+fi
+
+if [[ "${1:-}" == "add" ]]; then
+  exit 0
+fi
+
+if [[ "${1:-}" == "diff" && "${2:-}" == "--cached" && "${3:-}" == "--quiet" ]]; then
+  exit 0
+fi
+
+exit 0
+EOF
+chmod +x "${FAKE_GIT}"
+
+mkdir -p "${FAKE_REPO}/.beads"
+
+PATH="${TMP_DIR}:${PATH}" \
+ORCA_BR_REAL_BIN="${FAKE_REAL_BR}" \
+ORCA_REAL_BR_CAPTURE="${REAL_BR_CAPTURE}" \
+bash "${ROOT}/queue-write-main.sh" \
+  --repo "${FAKE_REPO}" \
+  --lock-helper "${FAKE_LOCK}" \
+  --actor "agent-1" \
+  -- \
+  br update orca-123 --claim --actor agent-1 --json >/dev/null
+
+assert_contains "${REAL_BR_CAPTURE}" "sync --import-only"
+assert_contains "${REAL_BR_CAPTURE}" "update orca-123 --claim --actor agent-1 --json"
+assert_contains "${REAL_BR_CAPTURE}" "sync --flush-only"
 
 echo "queue mutation guardrails regression passed"

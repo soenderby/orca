@@ -39,12 +39,16 @@ ORCA_LOCK_SCOPE="${ORCA_LOCK_SCOPE:-merge}"
 ORCA_LOCK_TIMEOUT_SECONDS="${ORCA_LOCK_TIMEOUT_SECONDS:-120}"
 ORCA_NO_WORK_DRAIN_MODE="${ORCA_NO_WORK_DRAIN_MODE:-drain}"
 ORCA_NO_WORK_RETRY_LIMIT="${ORCA_NO_WORK_RETRY_LIMIT:-1}"
+ORCA_BR_GUARD_MODE="${ORCA_BR_GUARD_MODE:-enforce}"
+ORCA_ALLOW_UNSAFE_BR_MUTATIONS="${ORCA_ALLOW_UNSAFE_BR_MUTATIONS:-0}"
+ORCA_BR_GUARD_PATH="${ORCA_BR_GUARD_PATH:-${ROOT}/br-guard.sh}"
 ORCA_ASSIGNMENT_MODE="${ORCA_ASSIGNMENT_MODE:-assigned}"
 ORCA_ASSIGNED_ISSUE_ID="${ORCA_ASSIGNED_ISSUE_ID:-}"
 ORCA_MODE_ID="${ORCA_MODE_ID:-}"
 ORCA_WORK_APPROACH_FILE="${ORCA_WORK_APPROACH_FILE:-}"
 AGENT_LOG_ROOT="${ROOT}/agent-logs"
 SESSION_LOG_ROOT="${AGENT_LOG_ROOT}/sessions"
+BR_REAL_BIN="$(command -v br || true)"
 
 if ! [[ "${MAX_RUNS}" =~ ^[0-9]+$ ]]; then
   echo "MAX_RUNS must be a non-negative integer (0 means unbounded mode): ${MAX_RUNS}" >&2
@@ -83,6 +87,16 @@ fi
 
 if ! [[ "${ORCA_NO_WORK_RETRY_LIMIT}" =~ ^[0-9]+$ ]]; then
   echo "ORCA_NO_WORK_RETRY_LIMIT must be a non-negative integer: ${ORCA_NO_WORK_RETRY_LIMIT}" >&2
+  exit 1
+fi
+
+if [[ "${ORCA_BR_GUARD_MODE}" != "enforce" && "${ORCA_BR_GUARD_MODE}" != "off" ]]; then
+  echo "ORCA_BR_GUARD_MODE must be 'enforce' or 'off': ${ORCA_BR_GUARD_MODE}" >&2
+  exit 1
+fi
+
+if ! [[ "${ORCA_ALLOW_UNSAFE_BR_MUTATIONS}" =~ ^[01]$ ]]; then
+  echo "ORCA_ALLOW_UNSAFE_BR_MUTATIONS must be 0 or 1: ${ORCA_ALLOW_UNSAFE_BR_MUTATIONS}" >&2
   exit 1
 fi
 
@@ -128,6 +142,16 @@ fi
 
 if [[ ! -x "${MERGE_HELPER_PATH}" ]]; then
   echo "ORCA_MERGE_MAIN_PATH must be executable: ${MERGE_HELPER_PATH}" >&2
+  exit 1
+fi
+
+if [[ ! -x "${ORCA_BR_GUARD_PATH}" ]]; then
+  echo "ORCA_BR_GUARD_PATH must be executable: ${ORCA_BR_GUARD_PATH}" >&2
+  exit 1
+fi
+
+if [[ -z "${BR_REAL_BIN}" || ! -x "${BR_REAL_BIN}" ]]; then
+  echo "br must be installed and executable for run-time guard enforcement" >&2
   exit 1
 fi
 
@@ -191,6 +215,7 @@ RUN_BRANCH_NAME=""
 RUN_MODE_ID=""
 RUN_APPROACH_SOURCE=""
 RUN_APPROACH_SHA256=""
+RUN_BR_GUARD_BIN_DIR=""
 
 log() {
   local line
@@ -943,6 +968,16 @@ restore_worktree_queue_artifacts() {
   log "restored local .beads changes"
 }
 
+prepare_br_guard_for_run() {
+  RUN_BR_GUARD_BIN_DIR="${RUN_DIR}/br-guard-bin"
+  mkdir -p "${RUN_BR_GUARD_BIN_DIR}"
+  cat > "${RUN_BR_GUARD_BIN_DIR}/br" <<EOF
+#!/usr/bin/env bash
+exec "$(printf '%q' "${ORCA_BR_GUARD_PATH}")" "\$@"
+EOF
+  chmod +x "${RUN_BR_GUARD_BIN_DIR}/br"
+}
+
 cleanup_on_signal() {
   local signal="$1"
 
@@ -970,6 +1005,8 @@ log "agent primary repo: ${PRIMARY_REPO}"
 log "agent lock helper: ${LOCK_HELPER_PATH}"
 log "agent queue write helper: ${QUEUE_WRITE_HELPER_PATH}"
 log "agent merge helper: ${MERGE_HELPER_PATH}"
+log "agent br guard mode: ${ORCA_BR_GUARD_MODE}"
+log "agent br guard path: ${ORCA_BR_GUARD_PATH}"
 log "no_work drain mode: ${ORCA_NO_WORK_DRAIN_MODE} (retry limit: ${ORCA_NO_WORK_RETRY_LIMIT})"
 log "assignment mode: ${ORCA_ASSIGNMENT_MODE} (assigned issue: ${ORCA_ASSIGNED_ISSUE_ID:-none})"
 refresh_mode_approach_attribution
@@ -1012,11 +1049,20 @@ while true; do
   write_prompt_file "${prompt_file}"
 
   build_agent_command_for_run
+  prepare_br_guard_for_run
   log "running agent command"
+  if [[ "${ORCA_ALLOW_UNSAFE_BR_MUTATIONS}" == "1" ]]; then
+    log "warning: ORCA_ALLOW_UNSAFE_BR_MUTATIONS=1; direct br mutations are allowed for this run"
+  fi
 
   run_started_epoch="$(now_epoch)"
 
-  if ORCA_RUN_SUMMARY_PATH="${SUMMARY_JSON_FILE}" \
+  if PATH="${RUN_BR_GUARD_BIN_DIR}:${PATH}" \
+    ORCA_BR_REAL_BIN="${BR_REAL_BIN}" \
+    ORCA_BR_GUARD_MODE="${ORCA_BR_GUARD_MODE}" \
+    ORCA_ALLOW_UNSAFE_BR_MUTATIONS="${ORCA_ALLOW_UNSAFE_BR_MUTATIONS}" \
+    ORCA_BR_GUARD_PATH="${ORCA_BR_GUARD_PATH}" \
+    ORCA_RUN_SUMMARY_PATH="${SUMMARY_JSON_FILE}" \
     ORCA_RUN_LOG_PATH="${LOGFILE}" \
     ORCA_RUN_NUMBER="${RUN_NUMBER}" \
     ORCA_SESSION_ID="${AGENT_SESSION_ID}" \
@@ -1037,6 +1083,8 @@ while true; do
   RUN_DURATION_SECONDS=$(( $(now_epoch) - run_started_epoch ))
 
   rm -f "${prompt_file}"
+  rm -rf "${RUN_BR_GUARD_BIN_DIR}"
+  RUN_BR_GUARD_BIN_DIR=""
 
   log "agent command exited with ${RUN_EXIT_CODE} after ${RUN_DURATION_SECONDS}s"
 

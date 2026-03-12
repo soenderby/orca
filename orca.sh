@@ -10,6 +10,7 @@ Usage:
   ${USAGE_PREFIX} <command> [args]
 
 Commands:
+  bootstrap [--yes] [--dry-run]
   doctor [--json]
   start [count] [--runs N|--continuous] [--drain|--watch] [--no-work-retries N] [--reasoning-level LEVEL]
   stop
@@ -34,6 +35,9 @@ case "${subcommand}" in
     ;;
   doctor)
     exec "${SCRIPT_DIR}/doctor.sh" "$@"
+    ;;
+  bootstrap)
+    exec "${SCRIPT_DIR}/bootstrap.sh" "$@"
     ;;
   stop)
     exec "${SCRIPT_DIR}/stop.sh" "$@"

@@ -72,6 +72,7 @@ Operating stance: autonomy with explicit protocol guidance (Option C; see `docs/
 
 ## Commands
 
+- `bootstrap [--yes] [--dry-run]`
 - `start [count] [--runs N|--continuous] [--drain|--watch] [--no-work-retries N] [--reasoning-level LEVEL]`
 - `doctor [--json]`
 - `stop`
@@ -98,22 +99,24 @@ Prioritize changes based on observed problems from real runs. Capture proposed i
 
 Orca is a `tmux`-backed multi-agent loop with one persistent git worktree per agent:
 
-1. `setup-worktrees.sh` creates missing `worktrees/agent-N` on branch `swarm/agent-N` from the detected base ref (`ORCA_BASE_REF`, otherwise `main`, then `origin/main`, then current branch), warns with ahead/behind counts when `main` and `origin/main` diverge, treats `swarm/agent-N` as local transport state, and ignores any `origin/swarm/agent-N` refs.
-2. `start.sh` launches one tmux session per agent, injects runtime env (including `ORCA_BASE_REF` when set), validates the local `br` queue workspace, and fails fast when an explicit `ORCA_BASE_REF` is invalid.
-3. `doctor.sh` runs onboarding preflight checks (`--json` available) without mutating repository or queue state.
-4. `plan.sh` computes deterministic assignment plans from queue-ready issues and label metadata (`px:exclusive`, `ck:*`), and emits machine-readable plan artifacts.
-5. `agent-loop.sh` runs one agent pass per iteration, validates explicit `ORCA_BASE_REF` overrides on startup, creates a unique per-run branch using the same base-ref precedence as setup, writes per-run logs/metrics, parses the agent summary JSON, and applies deterministic no-work drain policy.
-6. `AGENT_PROMPT.md` defines the agent contract for issue lifecycle, merge, discovery, and summary output.
-7. `with-lock.sh` provides the shared lock primitive used by queue/merge helpers.
-8. `queue-write-main.sh` performs lock-guarded queue mutations on `ORCA_PRIMARY_REPO/main`.
-9. `merge-main.sh` performs lock-guarded merge/push and rejects `.beads`-carrying source branches.
-10. `gc-run-branches.sh` safely prunes stale local `swarm/*-run-*` branches with dry-run by default.
-11. `status.sh` provides health and observability snapshots, including `br` workspace checks.
-12. `stop.sh` terminates active sessions.
+1. `bootstrap.sh` provides guided Ubuntu/WSL onboarding with deterministic step logging (`--yes`, `--dry-run`) and fail-hard Codex auth gating.
+2. `setup-worktrees.sh` creates missing `worktrees/agent-N` on branch `swarm/agent-N` from the detected base ref (`ORCA_BASE_REF`, otherwise `main`, then `origin/main`, then current branch), warns with ahead/behind counts when `main` and `origin/main` diverge, treats `swarm/agent-N` as local transport state, and ignores any `origin/swarm/agent-N` refs.
+3. `start.sh` launches one tmux session per agent, injects runtime env (including `ORCA_BASE_REF` when set), validates the local `br` queue workspace, and fails fast when an explicit `ORCA_BASE_REF` is invalid.
+4. `doctor.sh` runs onboarding preflight checks (`--json` available) without mutating repository or queue state.
+5. `plan.sh` computes deterministic assignment plans from queue-ready issues and label metadata (`px:exclusive`, `ck:*`), and emits machine-readable plan artifacts.
+6. `agent-loop.sh` runs one agent pass per iteration, validates explicit `ORCA_BASE_REF` overrides on startup, creates a unique per-run branch using the same base-ref precedence as setup, writes per-run logs/metrics, parses the agent summary JSON, and applies deterministic no-work drain policy.
+7. `AGENT_PROMPT.md` defines the agent contract for issue lifecycle, merge, discovery, and summary output.
+8. `with-lock.sh` provides the shared lock primitive used by queue/merge helpers.
+9. `queue-write-main.sh` performs lock-guarded queue mutations on `ORCA_PRIMARY_REPO/main`.
+10. `merge-main.sh` performs lock-guarded merge/push and rejects `.beads`-carrying source branches.
+11. `gc-run-branches.sh` safely prunes stale local `swarm/*-run-*` branches with dry-run by default.
+12. `status.sh` provides health and observability snapshots, including `br` workspace checks.
+13. `stop.sh` terminates active sessions.
 
 ## File Roles
 
 - `orca.sh`: command dispatcher
+- `bootstrap.sh`: guided Ubuntu/WSL onboarding with dependency install, `br` setup, queue initialization, and Codex auth gating
 - `setup-worktrees.sh`: creates and verifies persistent agent worktrees
 - `start.sh`: launches tmux-backed agent loops
 - `doctor.sh`: preflight readiness checks for setup/operations (`--json` machine-readable mode)
@@ -208,6 +211,24 @@ Each iteration:
 8. `watch` mode disables no-work auto-stop and keeps polling until an earlier stop condition (`MAX_RUNS`, `loop_action=stop`, or failure)
 
 ## Validation and Safety Checks
+
+### `bootstrap.sh`
+
+Guided Ubuntu/WSL onboarding flow:
+
+1. validates Ubuntu platform (WSL preferred)
+2. installs missing apt dependencies (`git`, `tmux`, `jq`, `util-linux`, `curl`, `python3`) with optional non-interactive `--yes`
+3. ensures `python` command availability via `python-is-python3`
+4. installs `br` via upstream installer to `~/.local/bin` and verifies active `br` path/version
+5. initializes queue workspace (`br init`) when `.beads/` is missing
+6. ensures queue `id.prefix` is configured (`orca` default)
+7. configures repo-local git identity (interactive by default; `--yes` adopts global identity when available)
+8. checks `codex` availability/auth via `codex login status` and fails hard with remediation commands when auth is unresolved
+
+Modes:
+
+1. `--yes` skips interactive confirmation prompts for package/install steps
+2. `--dry-run` logs planned actions without mutating system or repository
 
 ### `doctor.sh`
 

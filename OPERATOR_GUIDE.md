@@ -50,6 +50,13 @@ Also ensure:
 4. queue ID prefix is configured (`br config set id.prefix orca`, once)
 5. queue has actionable work (`br ready --json`)
 
+For guided setup on Ubuntu/WSL:
+
+```bash
+./orca.sh bootstrap --yes
+./orca.sh bootstrap --yes --dry-run
+```
+
 Run a preflight before first launch (or after environment changes):
 
 ```bash
@@ -58,6 +65,7 @@ Run a preflight before first launch (or after environment changes):
 ```
 
 `doctor` is read-only and returns a non-zero exit code only for hard requirement failures.
+`bootstrap` is mutating unless `--dry-run`; it fails hard when Codex authentication is still required.
 
 ## Queue Sync and Concurrency Model
 

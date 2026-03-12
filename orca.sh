@@ -21,6 +21,7 @@ Commands:
   setup-worktrees [count]
   with-lock [--scope NAME] [--timeout SECONDS] -- <command> [args...]
   queue-write-main [options] -- <queue-command> [args...]
+  queue-mutate [options] <mutation> [args...]
   merge-main [--source BRANCH] [options]
 USAGE
 }
@@ -63,6 +64,9 @@ case "${subcommand}" in
     ;;
   queue-write-main|queue-write)
     exec "${SCRIPT_DIR}/queue-write-main.sh" "$@"
+    ;;
+  queue-mutate|queue)
+    exec "${SCRIPT_DIR}/queue-mutate.sh" "$@"
     ;;
   merge-main|merge)
     exec "${SCRIPT_DIR}/merge-main.sh" "$@"

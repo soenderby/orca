@@ -13,6 +13,7 @@ Commands:
   start [count] [--runs N|--continuous] [--drain|--watch] [--no-work-retries N] [--reasoning-level LEVEL]
   stop
   status [--quick|--full]
+  plan [--slots N] [--output PATH]
   gc-run-branches [--apply] [--base REF]
   setup-worktrees [count]
   with-lock [--scope NAME] [--timeout SECONDS] -- <command> [args...]
@@ -35,6 +36,9 @@ case "${subcommand}" in
     ;;
   status)
     exec "${SCRIPT_DIR}/status.sh" "$@"
+    ;;
+  plan)
+    exec "${SCRIPT_DIR}/plan.sh" "$@"
     ;;
   gc-run-branches|gc)
     exec "${SCRIPT_DIR}/gc-run-branches.sh" "$@"

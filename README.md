@@ -202,6 +202,13 @@ Helper guarantees:
 6. `br comments add` must use file payload mode (`--file`)
 7. helper executes queue `br` commands via resolved real `br` binary (`ORCA_BR_REAL_BIN` when provided), so run-time guard shims do not block approved helper workflows
 
+Regression-protected tooling invariants (see `tests/regression_queue_mutation_guardrails.sh`):
+
+1. unsafe queue comment payload handling is blocked (`--message` disallowed for comment mutations)
+2. missing or mismatched mutation actor is rejected by queue mutation tooling
+3. direct run-worktree `br` mutations are blocked unless the explicit unsafe escape hatch is enabled
+4. primary queue-read failures can fall back to worktree reads when `--fallback worktree` is requested
+
 ### Queue Read Pattern (`queue-read-main.sh`)
 
 Use primary-repo queue reads for critical run/planner operations:

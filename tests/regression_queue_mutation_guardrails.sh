@@ -156,6 +156,10 @@ if [[ "${1:-}" == "-C" ]]; then
       ;;
     branch)
       if [[ "${2:-}" == "--show-current" ]]; then
+        if [[ -n "${ORCA_FAKE_GIT_BRANCH_OVERRIDE_REPO:-}" && "${repo}" == "${ORCA_FAKE_GIT_BRANCH_OVERRIDE_REPO}" ]]; then
+          echo "${ORCA_FAKE_GIT_BRANCH_OVERRIDE_NAME:-feature/test}"
+          exit 0
+        fi
         echo "main"
         exit 0
       fi
@@ -202,5 +206,27 @@ bash "${ROOT}/queue-write-main.sh" \
 assert_contains "${REAL_BR_CAPTURE}" "sync --import-only"
 assert_contains "${REAL_BR_CAPTURE}" "update orca-123 --claim --actor agent-1 --json"
 assert_contains "${REAL_BR_CAPTURE}" "sync --flush-only"
+
+FALLBACK_WORKTREE="${TMP_DIR}/fallback-worktree"
+mkdir -p "${FALLBACK_WORKTREE}"
+
+: > "${REAL_BR_CAPTURE}"
+queue_read_stderr="${TMP_DIR}/queue-read-fallback.stderr"
+PATH="${TMP_DIR}:${PATH}" \
+ORCA_BR_REAL_BIN="${FAKE_REAL_BR}" \
+ORCA_REAL_BR_CAPTURE="${REAL_BR_CAPTURE}" \
+ORCA_FAKE_GIT_BRANCH_OVERRIDE_REPO="${FAKE_REPO}" \
+ORCA_FAKE_GIT_BRANCH_OVERRIDE_NAME="feature/not-main" \
+bash "${ROOT}/queue-read-main.sh" \
+  --repo "${FAKE_REPO}" \
+  --lock-helper "${FAKE_LOCK}" \
+  --fallback worktree \
+  --worktree "${FALLBACK_WORKTREE}" \
+  -- \
+  br ready --json >/dev/null 2>"${queue_read_stderr}"
+
+assert_contains "${queue_read_stderr}" "primary queue read failed"
+assert_contains "${queue_read_stderr}" "queue_read_source=worktree fallback=worktree"
+assert_contains "${REAL_BR_CAPTURE}" "ready --json"
 
 echo "queue mutation guardrails regression passed"

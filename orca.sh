@@ -16,6 +16,7 @@ Commands:
   stop
   status [--quick|--full] [--json] [--session-id ID] [--session-prefix PREFIX]
   status --follow [--poll-interval SECONDS] [--max-events N] [--session-id ID] [--session-prefix PREFIX]
+  monitor --follow [--poll-interval SECONDS] [--max-events N] [--session-id ID] [--session-prefix PREFIX]
   monitor add --id AGENT_ID --lifecycle LIFECYCLE --tmux-target TARGET [--cwd PATH]
   monitor remove --id AGENT_ID
   monitor list [--json]

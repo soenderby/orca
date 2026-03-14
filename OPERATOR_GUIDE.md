@@ -156,6 +156,10 @@ Watch/poll mode override:
 ./orca.sh status --quick --session-prefix "orca-agent-1-20260311T07"   # scope to matching sessions
 ./orca.sh status --full --session-id "<session-id>"                     # scope to one exact session
 ./orca.sh status --follow --session-id "<session-id>"                   # JSONL lifecycle monitor stream
+./orca.sh monitor --follow --session-id "<session-id>"                  # merged managed+observed JSONL monitor stream
+./orca.sh monitor add --id observed-a --lifecycle persistent --tmux-target dev:main
+./orca.sh monitor list --json
+./orca.sh observe start --id observed-b --lifecycle ephemeral --tmux-target sandbox:main --cwd "$PWD" -- bash -lc "make test"
 ./orca.sh wait --session-id "<session-id>" --timeout 900 --json         # block for completion
 find agent-logs/sessions -type f | sort | tail -n 20
 tail -n 10 agent-logs/metrics.jsonl
@@ -163,7 +167,16 @@ tail -n 10 agent-logs/metrics.jsonl
 
 `orca status` defaults to quick mode for frequent checks. Use `--full` when you need complete `br` diagnostics, worktree hygiene detail, and extended metrics sections. `--json` emits machine-readable status with `schema_version=orca.status.v1`, and `--follow` emits machine-readable lifecycle events with `schema_version=orca.monitor.v2` (`session_up`, `session_down`, `run_started`, `run_completed`, `run_failed`).
 All status surfaces show scoped active run state (`state=running|idle`) and support session scoping with `--session-id` / `--session-prefix`.
+`orca monitor --follow` emits a merged `orca.monitor.v2` stream: managed events are passed through from `status --follow`, while observed events are generated from registry+tmux liveness transitions. In v0, missing `tmux` is a hard operational failure (exit code `3`).
+`orca monitor add/remove/list` manage only observed registry state; `monitor remove` never kills tmux sessions. `orca observe start` creates detached tmux targets and registers them atomically, rolling back tmux session creation if registry write fails.
 `orca wait` is the non-interactive blocking primitive for automation. It supports the same session scoping (`--session-id` / `--session-prefix`) and returns deterministic exit codes (`0` success, `2` timeout, `3` scoped failure, `4` invalid usage/config). In unscoped mode it waits only on sessions active at invocation (safe default for unattended `start -> wait` flows); use `--all-history` to include historical session artifacts. When no scoped sessions exist at invocation time, it returns immediate success with reason `no_scoped_sessions`.
+
+Merged monitor JSONL example:
+
+```json
+{"schema_version":"orca.monitor.v2","event_id":"run_started:managed-1:run-0001","event_type":"run_started","observed_at":"2026-03-14T12:00:00Z","session_id":"managed-1","mode":"managed","tmux_target":"orca-agent-1","run":{"run_id":"run-0001","state":"running","result":null,"issue_status":null,"summary_path":null}}
+{"schema_version":"orca.monitor.v2","event_id":"session_up:observed-a","event_type":"session_up","observed_at":"2026-03-14T12:00:02Z","session_id":"observed-a","mode":"observed","lifecycle":"persistent","tmux_target":"dev:main","session":{"session_id":"observed-a","tmux_target":"dev:main","lifecycle":"persistent","active":true}}
+```
 
 ### 4) Stop
 

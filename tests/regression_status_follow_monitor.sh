@@ -82,8 +82,8 @@ if [[ "$(wc -l < "${OUT_FILE}" | tr -d '[:space:]')" -lt 4 ]]; then
   exit 1
 fi
 
-if ! jq -e 'select(.event_type == "session_started")' "${OUT_FILE}" >/dev/null; then
-  echo "missing session_started event" >&2
+if ! jq -e 'select(.event_type == "session_up")' "${OUT_FILE}" >/dev/null; then
+  echo "missing session_up event" >&2
   exit 1
 fi
 if ! jq -e 'select(.event_type == "run_started")' "${OUT_FILE}" >/dev/null; then
@@ -94,8 +94,8 @@ if ! jq -e 'select(.event_type == "run_completed")' "${OUT_FILE}" >/dev/null; th
   echo "missing run_completed event" >&2
   exit 1
 fi
-if ! jq -e 'select(.event_type == "loop_stopped")' "${OUT_FILE}" >/dev/null; then
-  echo "missing loop_stopped event" >&2
+if ! jq -e 'select(.event_type == "session_down")' "${OUT_FILE}" >/dev/null; then
+  echo "missing session_down event" >&2
   exit 1
 fi
 if ! jq -e 'select(.event_type == "run_started") | .event_id' "${OUT_FILE}" | sort | uniq -d | grep . >/dev/null 2>&1; then
@@ -105,8 +105,35 @@ else
   exit 1
 fi
 
-if [[ "$(jq -r '.schema_version' "${OUT_FILE}" | sort -u)" != "orca.monitor.v1" ]]; then
+if [[ "$(jq -r '.schema_version' "${OUT_FILE}" | sort -u)" != "orca.monitor.v2" ]]; then
   echo "unexpected follow schema_version" >&2
+  exit 1
+fi
+
+if jq -e 'select(.event_type == "session_started" or .event_type == "loop_stopped")' "${OUT_FILE}" >/dev/null; then
+  echo "legacy follow event type detected" >&2
+  exit 1
+fi
+
+if ! jq -e '
+  . as $e
+  | ($e | has("schema_version"))
+  and ($e | has("observed_at"))
+  and ($e | has("event_type"))
+  and ($e | has("event_id"))
+  and ($e | has("session_id"))
+  and ($e | has("mode"))
+  and ($e | has("tmux_target"))
+' "${OUT_FILE}" >/dev/null; then
+  echo "follow event missing required top-level fields" >&2
+  exit 1
+fi
+
+if ! jq -e '
+  .event_type
+  | test("^(session_up|session_down|run_[A-Za-z0-9_]+)$")
+' "${OUT_FILE}" >/dev/null; then
+  echo "unexpected follow event_type outside v2 allowlist" >&2
   exit 1
 fi
 

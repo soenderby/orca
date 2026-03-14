@@ -173,6 +173,7 @@ Watch/poll mode override:
 ./orca.sh status --quick --session-prefix "orca-agent-1-20260311T07"   # scope to matching sessions
 ./orca.sh status --full --session-id "<session-id>"                     # scope to one exact session
 ./orca.sh status --follow --session-id "<session-id>"                   # JSONL lifecycle monitor stream
+./orca.sh targets --json                                                # unified managed+observed switch targets
 ./orca.sh monitor --follow --session-id "<session-id>"                  # merged managed+observed JSONL monitor stream
 ./orca.sh monitor add --id observed-a --lifecycle persistent --tmux-target dev:main
 ./orca.sh monitor list --json
@@ -185,6 +186,7 @@ tail -n 10 agent-logs/metrics.jsonl
 
 `orca status` defaults to quick mode for frequent checks. Use `--full` when you need complete `br` diagnostics, worktree hygiene detail, and extended metrics sections. `--json` emits machine-readable status with `schema_version=orca.status.v1`, and `--follow` emits machine-readable lifecycle events with `schema_version=orca.monitor.v2` (`session_up`, `session_down`, `run_started`, `run_completed`, `run_failed`).
 All status surfaces show scoped active run state (`state=running|idle`) and support session scoping with `--session-id` / `--session-prefix`.
+`orca targets` provides one normalized inventory for interactive switching across managed and observed targets (`id`, `mode`, `tmux_target`, `active`, `session_id`) and supports `--json`, `--session-id`, and `--session-prefix`.
 `orca monitor --follow` emits a merged `orca.monitor.v2` stream: managed events are passed through from `status --follow`, while observed events are generated from registry+tmux liveness transitions. In v0, missing `tmux` is a hard operational failure (exit code `3`).
 `orca monitor add/remove/list` manage only observed registry state; `monitor remove` never kills tmux sessions. `orca observe start` creates detached tmux targets and registers them atomically, rolling back tmux session creation if registry write fails.
 Observed registry loading is strict for `monitor list/add/remove` and `observe start`: malformed JSON or invalid persisted `id`/`lifecycle`/`tmux_target` values are rejected as operational failures (no auto-repair).

@@ -87,7 +87,8 @@ Behavior:
 - merged JSONL output in canonical event schema (`orca.monitor.v2`),
 - merges:
   - managed lifecycle events from `./orca.sh status --follow`
-  - observed target liveness events from registry + tmux polling.
+  - observed target liveness events from registry + tmux polling,
+- hard-fails if `tmux` is unavailable (no degraded mode in v0).
 
 Defaults:
 - `--poll-interval 5`
@@ -280,6 +281,7 @@ Field semantics:
 - `4` invalid usage
 
 `monitor --follow` runs until interrupted and exits `0` on clean interrupt.
+`monitor --follow` exits `3` when `tmux` is unavailable.
 
 ---
 
@@ -294,8 +296,9 @@ Field semantics:
 7. `status --follow` emits canonical managed events in `orca.monitor.v2` with event types limited to `session_up|session_down|run_started|run_completed|run_failed`.
 8. `monitor --follow` emits managed events without schema drift from `status --follow`.
 9. `monitor --follow` emits `session_up/session_down` for observed targets.
-10. Follow events include stable `event_id` and do not emit duplicate transition events for unchanged state.
-11. Registry writes stay atomic under concurrent add/remove operations.
+10. `monitor --follow` hard-fails with exit code `3` when `tmux` is unavailable.
+11. Follow events include stable `event_id` and do not emit duplicate transition events for unchanged state.
+12. Registry writes stay atomic under concurrent add/remove operations.
 
 ---
 

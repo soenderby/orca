@@ -397,6 +397,20 @@ Signal handling:
 12. full-mode metrics summary is cached by `metrics.jsonl` fingerprint (`size:mtime:v2`) under `agent-logs/cache`; unchanged files reuse cached counters/agent latest rows
 13. cache limitation: the first `--full` call after any `metrics.jsonl` change still performs a full parse to refresh cache
 
+Managed follow v2 contract (frozen target for monitor layering; implemented in `orca-18w.2`):
+
+- schema version: `orca.monitor.v2`
+- event types: `session_up`, `session_down`, `run_started`, `run_completed`, `run_failed`
+- exact `event_id` formats:
+  - `session_up:<session_id>`
+  - `session_down:<session_id>`
+  - `run_started:<session_id>:<run_id>`
+  - `run_completed:<session_id>:<run_id>`
+  - `run_failed:<session_id>:<run_id>`
+- managed `session_down` semantics: emit only on tmux liveness transition `active -> inactive`; never infer from graceful loop stop or run completion
+- transition-only behavior: unchanged snapshots must not re-emit the same lifecycle transition
+- v2 excludes legacy names `session_started` and `loop_stopped`
+
 Tuning knobs:
 
 - `ORCA_STATUS_STALE_SECONDS` (default `900`)

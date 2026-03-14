@@ -59,10 +59,30 @@ Optional fields:
 - `run` (required for `run_*`, omitted/null for session liveness events)
 - `lifecycle` (`ephemeral|persistent`, optional metadata)
 
-### 3.2 Event identity and de-dup
+### 3.2 Managed session liveness semantics (`status --follow`)
 
-- `event_id` MUST be stable enough for downstream de-duplication.
+For `mode="managed"`, session liveness is derived from tmux target availability, not run summaries.
+
+- `session_up` is emitted on an `inactive -> active` transition (including first observation of an already-active managed session).
+- `session_down` is emitted on an `active -> inactive` transition.
+- `session_down` is **not** inferred from graceful loop stop, run completion, or summary result.
+- Legacy lifecycle names (`session_started`, `loop_stopped`) are invalid for v2 streams.
+
+### 3.3 Event identity formats and de-dup
+
+`event_id` is part of the wire contract and MUST use these exact formats:
+
+- `session_up:<session_id>`
+- `session_down:<session_id>`
+- `run_started:<session_id>:<run_id>`
+- `run_completed:<session_id>:<run_id>`
+- `run_failed:<session_id>:<run_id>`
+
+Additional requirements:
+
+- `run_id` is required for `run_*` events.
 - Follow emitters MUST only emit transitions (edge-triggered), not level-triggered repeats.
+- The same transition MUST NOT be emitted repeatedly across unchanged poll snapshots.
 
 ---
 
@@ -262,6 +282,9 @@ Field semantics:
 - `session_id`
   - managed: Orca session id
   - observed: registry `id`
+- `event_id`
+  - exact format is defined in section 3.3
+  - stable key for downstream de-duplication and idempotent consumers
 - `tmux_target`
   - managed: tmux session name
   - observed: registered `session` or `session:window`
@@ -294,11 +317,13 @@ Field semantics:
 5. `observe start` fails on invalid cwd with no side effects.
 6. `monitor remove` only removes registry entry.
 7. `status --follow` emits canonical managed events in `orca.monitor.v2` with event types limited to `session_up|session_down|run_started|run_completed|run_failed`.
-8. `monitor --follow` emits managed events without schema drift from `status --follow`.
-9. `monitor --follow` emits `session_up/session_down` for observed targets.
-10. `monitor --follow` hard-fails with exit code `3` when `tmux` is unavailable.
-11. Follow events include stable `event_id` and do not emit duplicate transition events for unchanged state.
-12. Registry writes stay atomic under concurrent add/remove operations.
+8. Managed `session_down` is emitted only on tmux liveness transition `active -> inactive` (not from graceful-stop inference).
+9. `status --follow` uses exact v2 `event_id` formats from section 3.3 for every event type.
+10. `monitor --follow` emits managed events without schema drift from `status --follow`.
+11. `monitor --follow` emits `session_up/session_down` for observed targets.
+12. `monitor --follow` hard-fails with exit code `3` when `tmux` is unavailable.
+13. Follow events do not emit duplicate transition events for unchanged state.
+14. Registry writes stay atomic under concurrent add/remove operations.
 
 ---
 
@@ -308,3 +333,4 @@ This v0 spec intentionally defines a clean-break follow contract:
 - `session_started` is replaced by `session_up`
 - `loop_stopped` is replaced by `session_down`
 - follow schema version is `orca.monitor.v2`
+- v2 `event_id` formats are fixed as listed in section 3.3

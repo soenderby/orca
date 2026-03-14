@@ -108,6 +108,7 @@ Operating stance: autonomy with explicit protocol guidance (Option C; see `docs/
 - `status [--quick|--full] [--json] [--session-id ID] [--session-prefix PREFIX]`
 - `status --follow [--poll-interval SECONDS] [--max-events N] [--session-id ID] [--session-prefix PREFIX]`
 - `targets [--json] [--session-id ID] [--session-prefix PREFIX]`
+- `jump <target>`
 - `monitor --follow [--poll-interval SECONDS] [--max-events N] [--session-id ID] [--session-prefix PREFIX]`
 - `monitor add --id AGENT_ID --lifecycle LIFECYCLE --tmux-target TARGET [--cwd PATH]`
 - `monitor remove --id AGENT_ID`
@@ -155,8 +156,9 @@ Orca is a `tmux`-backed multi-agent loop with one persistent git worktree per ag
 13. `gc-run-branches.sh` safely prunes stale local `swarm/*-run-*` branches with dry-run by default.
 14. `status.sh` provides health and observability snapshots, including `br` workspace checks.
 15. `targets.sh` provides a unified managed+observed target inventory for interactive switching (`--json` supported).
-16. `wait.sh` blocks until scoped sessions complete and returns deterministic automation exit codes.
-17. `stop.sh` terminates active sessions.
+16. `jump.sh` resolves logical ids (or explicit tmux targets) and switches/attaches the tmux client.
+17. `wait.sh` blocks until scoped sessions complete and returns deterministic automation exit codes.
+18. `stop.sh` terminates active sessions.
 
 ## File Roles
 
@@ -176,6 +178,7 @@ Orca is a `tmux`-backed multi-agent loop with one persistent git worktree per ag
 - `gc-run-branches.sh`: safe stale run-branch pruning helper (dry-run default, protects active worktrees/sessions)
 - `status.sh`: displays sessions, worktrees, queue snapshots, logs, and metrics
 - `targets.sh`: lists deterministic managed+observed interactive targets (table or JSON)
+- `jump.sh`: resolves logical target ids (or explicit tmux targets) and jumps tmux clients
 - `wait.sh`: blocking completion monitor for scoped sessions with deterministic exit codes
 - `stop.sh`: stops active agent sessions
 - `AGENT_PROMPT.md`: agent instruction contract used by `agent-loop.sh`
@@ -472,6 +475,32 @@ Automation examples:
 Regression check:
 
 - `bash tests/regression_targets_inventory.sh`
+
+### `jump.sh`
+
+1. `jump` resolves target ids from `targets --json` first (`managed:*`, `observed:*`), then falls back to explicit tmux targets (`session` or `session:window`).
+2. outside tmux it attaches with `tmux attach-session -t <target>`; inside tmux it switches clients with `tmux switch-client -t <target>`.
+3. inactive, ambiguous, missing, and invalid target requests fail with deterministic non-zero exits.
+
+Regression check:
+
+- `bash tests/regression_jump_command.sh`
+
+Minimal two-pane operator workflow:
+
+Pane A (foreground monitor stream):
+
+```bash
+./orca.sh monitor --follow --session-prefix "orca-agent-"
+```
+
+Pane B (interactive target selection + jump):
+
+```bash
+./orca.sh targets --json | jq -r '.[] | [.id, .mode, .tmux_target, .active] | @tsv'
+./orca.sh jump "managed:orca-agent-1-20260314T120000Z"
+./orca.sh jump "observed:observed-a"
+```
 
 ### `monitor.sh` + `observe.sh`
 

@@ -17,15 +17,29 @@ source "${ROOT}/lib/observed-registry.sh"
 # shellcheck source=/dev/null
 source "${ROOT}/lib/tmux-target.sh"
 
+registry_inode() {
+  stat -c '%i' "${REGISTRY_PATH}"
+}
+
+tmp_registry_file_count() {
+  find "$(dirname "${REGISTRY_PATH}")" -maxdepth 1 -name '.observed-sessions.tmp.*' | wc -l | tr -d '[:space:]'
+}
+
 list_output="$(orca_observed_registry_list "${REGISTRY_PATH}")"
 if [[ "$(jq -r 'length' <<<"${list_output}")" -ne 0 ]]; then
   echo "expected empty registry on first list" >&2
   exit 1
 fi
+inode_after_first_list="$(registry_inode)"
 
 added_one="$(orca_observed_registry_add '{"id":"agent-a","mode":"observed","lifecycle":"persistent","tmux_target":"work","source":"monitor_add"}' "${REGISTRY_PATH}")"
 if [[ "$(jq -r '.id' <<<"${added_one}")" != "agent-a" ]]; then
   echo "expected added entry for agent-a" >&2
+  exit 1
+fi
+inode_after_first_add="$(registry_inode)"
+if [[ -z "${inode_after_first_add}" || -z "${inode_after_first_list}" ]]; then
+  echo "expected registry file inode metadata to be available" >&2
   exit 1
 fi
 
@@ -55,6 +69,11 @@ fi
 removed="$(orca_observed_registry_remove "agent-a" "${REGISTRY_PATH}")"
 if [[ "$(jq -r '.id' <<<"${removed}")" != "agent-a" ]]; then
   echo "expected removed entry for agent-a" >&2
+  exit 1
+fi
+inode_after_first_remove="$(registry_inode)"
+if [[ -z "${inode_after_first_remove}" ]]; then
+  echo "expected registry file inode metadata after remove" >&2
   exit 1
 fi
 
@@ -165,5 +184,35 @@ if ! grep -Fx "list-windows -F #W -t work" "${TMUX_LOG}" >/dev/null; then
   echo "expected list-windows check for work" >&2
   exit 1
 fi
+
+orca_observed_registry_remove "agent-b" "${REGISTRY_PATH}" >/dev/null
+inode_after_remove="$(registry_inode)"
+if [[ -z "${inode_after_remove}" ]]; then
+  echo "expected registry file inode metadata after final remove" >&2
+  exit 1
+fi
+
+if [[ "$(tmp_registry_file_count)" -ne 0 ]]; then
+  echo "expected no temporary registry files after atomic writes" >&2
+  exit 1
+fi
+
+(
+  for i in $(seq 1 40); do
+    orca_observed_registry_add "{\"id\":\"atomic-${i}\",\"mode\":\"observed\",\"lifecycle\":\"ephemeral\",\"tmux_target\":\"atomic-${i}\"}" "${REGISTRY_PATH}" >/dev/null
+    orca_observed_registry_remove "atomic-${i}" "${REGISTRY_PATH}" >/dev/null
+  done
+) &
+writer_pid=$!
+
+for _ in $(seq 1 120); do
+  if ! jq -e '.schema_version == "orca.observed.v1" and (.entries | type == "array")' "${REGISTRY_PATH}" >/dev/null 2>&1; then
+    echo "expected registry reads to remain parseable during concurrent writes (atomicity regression)" >&2
+    wait "${writer_pid}" >/dev/null 2>&1 || true
+    exit 1
+  fi
+done
+
+wait "${writer_pid}"
 
 echo "monitor primitive helper regression checks passed"

@@ -98,6 +98,11 @@ Operating stance: autonomy with explicit protocol guidance (Option C; see `docs/
 - `stop`
 - `status [--quick|--full] [--json] [--session-id ID] [--session-prefix PREFIX]`
 - `status --follow [--poll-interval SECONDS] [--max-events N] [--session-id ID] [--session-prefix PREFIX]`
+- `monitor --follow [--poll-interval SECONDS] [--max-events N] [--session-id ID] [--session-prefix PREFIX]`
+- `monitor add --id AGENT_ID --lifecycle LIFECYCLE --tmux-target TARGET [--cwd PATH]`
+- `monitor remove --id AGENT_ID`
+- `monitor list [--json]`
+- `observe start --id AGENT_ID --lifecycle LIFECYCLE --tmux-target TARGET --cwd PATH -- <command...>`
 - `wait [--timeout SECONDS] [--poll-interval SECONDS] [--session-id ID] [--session-prefix PREFIX] [--all-history] [--json]`
 - `plan [--slots N] [--output PATH]`
 - `gc-run-branches [--apply] [--base REF]`
@@ -435,6 +440,31 @@ Automation examples:
 # Follow lifecycle transitions for one session and react to failures
 ./orca.sh status --follow --session-id "<session-id>" \
   | jq -r 'select(.event_type == "run_failed") | "FAILED " + .session_id + " run=" + (.run.run_id // "none")'
+```
+
+### `monitor.sh` + `observe.sh`
+
+1. `monitor --follow` emits canonical `orca.monitor.v2` JSONL by merging:
+   - managed events from `status --follow` (passthrough, no schema drift)
+   - observed-target liveness transitions from registry + tmux polling
+2. observed transitions are edge-triggered (`session_up`/`session_down`) and deduplicated across unchanged snapshots.
+3. `monitor add` registers existing tmux targets; `monitor remove` only updates registry state and never kills tmux sessions.
+4. `monitor list --json` returns the observed registry entries array.
+5. `observe start` creates detached tmux targets, registers them as observed, and rolls back tmux session creation if registry write fails.
+6. `monitor --follow` hard-fails with exit code `3` when `tmux` is unavailable.
+
+Regression checks:
+
+- `bash tests/regression_monitor_primitives.sh`
+- `bash tests/regression_monitor_observe_commands.sh`
+- `bash tests/regression_monitor_follow_stream.sh`
+
+JSONL examples:
+
+```json
+{"schema_version":"orca.monitor.v2","event_id":"run_started:managed-1:run-0001","event_type":"run_started","observed_at":"2026-03-14T12:00:00Z","session_id":"managed-1","mode":"managed","tmux_target":"orca-agent-1","run":{"run_id":"run-0001","state":"running","result":null,"issue_status":null,"summary_path":null}}
+{"schema_version":"orca.monitor.v2","event_id":"session_up:observed-1","event_type":"session_up","observed_at":"2026-03-14T12:00:02Z","session_id":"observed-1","mode":"observed","lifecycle":"persistent","tmux_target":"obs","session":{"session_id":"observed-1","tmux_target":"obs","lifecycle":"persistent","active":true}}
+{"schema_version":"orca.monitor.v2","event_id":"session_down:observed-1","event_type":"session_down","observed_at":"2026-03-14T12:00:10Z","session_id":"observed-1","mode":"observed","lifecycle":"persistent","tmux_target":"obs","session":{"session_id":"observed-1","tmux_target":"obs","lifecycle":"persistent","active":false}}
 ```
 
 ### `wait.sh`

@@ -225,6 +225,15 @@ Write semantics:
 - lock-guarded,
 - atomic write (`tmp` + rename in same directory).
 
+Load semantics (strict, v0):
+- `monitor list`, `monitor add`, `monitor remove`, and `observe start` reject malformed/invalid registry documents instead of repairing them.
+- registry entry constraints are enforced at load-time:
+  - `id` must match `^[A-Za-z0-9._:-]+$`
+  - `lifecycle` must be `ephemeral|persistent` when present
+  - `tmux_target` must be a non-empty string
+- invalid registry documents/entries are operational failures (exit code `3` from monitor/observe commands).
+- normalization/auto-repair is intentionally out of scope; operators must fix or remove invalid entries explicitly.
+
 Schema:
 
 ```json

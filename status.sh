@@ -739,13 +739,15 @@ emit_follow_events_jsonl() {
     '
       def index_by_session($arr):
         reduce $arr[] as $row ({}; .[$row.session_id] = $row);
-      def emit($type; $id; $session; $payload):
+      def emit($type; $id; $session; $context; $payload):
         {
-          schema_version: "orca.monitor.v1",
+          schema_version: "orca.monitor.v2",
           observed_at: $observed_at,
           event_type: $type,
           event_id: $id,
-          session_id: $session
+          session_id: $session,
+          mode: "managed",
+          tmux_target: ($context.tmux_session // null)
         } + $payload;
 
       index_by_session(.[0]) as $prev
@@ -756,36 +758,36 @@ emit_follow_events_jsonl() {
           | ($prev[$sid] // null) as $p
           | ($curr[$sid] // null) as $c
           | (
-              if ($p == null and $c != null) then
-                [emit("session_started"; ("session_started:" + $sid); $sid; {session: $c})]
+              if ($c != null and ($c.active == true) and (($p == null) or ($p.active != true))) then
+                [emit("session_up"; ("session_up:" + $sid); $sid; $c; {session: $c})]
               else
                 []
               end
             )
           + (
-              if ($c != null and ($c.latest_run_state == "running") and (($p == null) or ($p.latest_run_id != $c.latest_run_id) or ($p.latest_run_state != "running"))) then
-                [emit("run_started"; ("run_started:" + $sid + ":" + ($c.latest_run_id // "none")); $sid; {run: {run_id: $c.latest_run_id, state: $c.latest_run_state, result: $c.latest_run_result, issue_status: $c.latest_issue_status, summary_path: $c.latest_summary_path}})]
+              if ($c != null and ($c.latest_run_id != null) and ($c.latest_run_id != "") and ($c.latest_run_state == "running") and (($p == null) or ($p.latest_run_id != $c.latest_run_id) or ($p.latest_run_state != "running"))) then
+                [emit("run_started"; ("run_started:" + $sid + ":" + $c.latest_run_id); $sid; $c; {run: {run_id: $c.latest_run_id, state: $c.latest_run_state, result: $c.latest_run_result, issue_status: $c.latest_issue_status, summary_path: $c.latest_summary_path}})]
               else
                 []
               end
             )
           + (
-              if ($c != null and ($c.latest_run_state == "completed") and (($p == null) or ($p.latest_run_id != $c.latest_run_id) or ($p.latest_run_state != "completed"))) then
-                [emit("run_completed"; ("run_completed:" + $sid + ":" + ($c.latest_run_id // "none")); $sid; {run: {run_id: $c.latest_run_id, state: $c.latest_run_state, result: $c.latest_run_result, issue_status: $c.latest_issue_status, summary_path: $c.latest_summary_path}})]
+              if ($c != null and ($c.latest_run_id != null) and ($c.latest_run_id != "") and ($c.latest_run_state == "completed") and (($p == null) or ($p.latest_run_id != $c.latest_run_id) or ($p.latest_run_state != "completed"))) then
+                [emit("run_completed"; ("run_completed:" + $sid + ":" + $c.latest_run_id); $sid; $c; {run: {run_id: $c.latest_run_id, state: $c.latest_run_state, result: $c.latest_run_result, issue_status: $c.latest_issue_status, summary_path: $c.latest_summary_path}})]
               else
                 []
               end
             )
           + (
-              if ($c != null and ($c.latest_run_state == "failed") and (($p == null) or ($p.latest_run_id != $c.latest_run_id) or ($p.latest_run_state != "failed"))) then
-                [emit("run_failed"; ("run_failed:" + $sid + ":" + ($c.latest_run_id // "none")); $sid; {run: {run_id: $c.latest_run_id, state: $c.latest_run_state, result: $c.latest_run_result, issue_status: $c.latest_issue_status, summary_path: $c.latest_summary_path}})]
+              if ($c != null and ($c.latest_run_id != null) and ($c.latest_run_id != "") and ($c.latest_run_state == "failed") and (($p == null) or ($p.latest_run_id != $c.latest_run_id) or ($p.latest_run_state != "failed"))) then
+                [emit("run_failed"; ("run_failed:" + $sid + ":" + $c.latest_run_id); $sid; $c; {run: {run_id: $c.latest_run_id, state: $c.latest_run_state, result: $c.latest_run_result, issue_status: $c.latest_issue_status, summary_path: $c.latest_summary_path}})]
               else
                 []
               end
             )
           + (
-              if ($p != null and ($p.active == true) and ($c != null) and ($c.active == false)) then
-                [emit("loop_stopped"; ("loop_stopped:" + $sid + ":" + ($c.latest_run_id // "none")); $sid; {session: $c})]
+              if ($p != null and ($p.active == true) and (($c == null) or ($c.active != true))) then
+                [emit("session_down"; ("session_down:" + $sid); $sid; ($c // $p); {session: (($c // $p) + {active: false})})]
               else
                 []
               end

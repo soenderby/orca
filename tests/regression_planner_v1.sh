@@ -18,6 +18,7 @@ trap cleanup EXIT
 
 cat > "${READY_JSON}" <<'JSON'
 [
+  { "id": "orca-t", "priority": 1, "created_at": "2026-03-01T00:00:00Z" },
   { "id": "orca-e", "priority": 3, "created_at": "2026-03-01T00:00:05Z" },
   { "id": "orca-c", "priority": 1, "created_at": "2026-03-01T00:00:03Z" },
   { "id": "orca-a", "priority": 1, "created_at": "2026-03-01T00:00:01Z" },
@@ -28,6 +29,7 @@ cat > "${READY_JSON}" <<'JSON'
 JSON
 
 cat > "${ISSUES_JSONL}" <<'JSONL'
+{"id":"orca-t","title":"tracker","status":"open","priority":1,"labels":["meta:tracker"]}
 {"id":"orca-a","title":"a","status":"open","priority":1,"labels":[]}
 {"id":"orca-b","title":"b","status":"open","priority":1,"labels":["ck:queue"]}
 {"id":"orca-c","title":"c","status":"open","priority":1,"labels":["ck:queue"]}
@@ -51,8 +53,9 @@ cmp -s "${PLAN_ONE}" "${PLAN_TWO}"
 jq -e '
   .planner_version == "v1"
   and .input.slots == 3
-  and .input.ready_count == 6
+  and .input.ready_count == 7
   and (.assignments | map(.issue_id) == ["orca-a", "orca-b", "orca-e"])
+  and (.held | map(select(.issue_id == "orca-t" and .reason_code == "tracker-issue")) | length == 1)
   and (.held | map(select(.issue_id == "orca-c" and .reason_code == "contention-key-conflict")) | length == 1)
   and (.held | map(select(.issue_id == "orca-c" and .conflict_key == "queue")) | length == 1)
   and (.held | map(select(.issue_id == "orca-d" and .reason_code == "exclusive-conflict")) | length == 1)

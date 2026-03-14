@@ -74,19 +74,28 @@ Label taxonomy:
 
 1. `px:exclusive`: issue must run alone and should not be scheduled with any other issue.
 2. `ck:<key>`: contention key. Issues sharing the same `ck:<key>` should not run together.
+3. `meta:tracker`: parent/tracker issue. Kept out of default planner assignment; used for coordination and closure tracking.
 
 Precedence rules:
 
-1. `px:exclusive` overrides any `ck:*` labels.
-2. If multiple issues share `ck:<key>`, treat that key as mutually exclusive for concurrent scheduling.
-3. Unlabeled issues are parallel-allowed by default.
+1. `meta:tracker` issues are held by `plan.sh` with reason code `tracker-issue` and are not assigned in normal `assigned` mode.
+2. `px:exclusive` overrides any `ck:*` labels.
+3. If multiple issues share `ck:<key>`, treat that key as mutually exclusive for concurrent scheduling.
+4. Unlabeled issues are parallel-allowed by default.
 
 Authoring guidance:
 
 1. Add `px:exclusive` for high-risk work with broad or hard-to-predict impact (for example: repo-wide refactors, schema migrations, or lockfile/toolchain rewrites).
 2. Add `ck:<key>` when overlap is localized to a subsystem (for example: `ck:queue`, `ck:docs`, `ck:agent-loop`, `ck:build`).
 3. Prefer stable, subsystem-oriented keys over issue-specific keys so contention is predictable across runs.
-4. If unsure, start with a `ck:<key>` label and escalate to `px:exclusive` only when isolation is required.
+4. Mark parent/tracker issues with `meta:tracker` at creation time; keep implementation scoped to child issues.
+5. If unsure, start with a `ck:<key>` label and escalate to `px:exclusive` only when isolation is required.
+
+Tracker lifecycle guidance:
+
+1. Create a tracker when coordinating multi-issue efforts; add `meta:tracker` immediately.
+2. Keep trackers open for dependency/rollup visibility while child issues are active.
+3. Close the tracker only after all planned child work is merged and queue dependencies are resolved.
 
 Operating stance: autonomy with explicit protocol guidance (Option C; see `docs/decision-log.md`, DL-001). Orca provides safety guardrails and observability, while agents retain broad execution autonomy.
 
@@ -132,7 +141,7 @@ Orca is a `tmux`-backed multi-agent loop with one persistent git worktree per ag
 2. `setup-worktrees.sh` creates missing `worktrees/agent-N` on branch `swarm/agent-N` from the detected base ref (`ORCA_BASE_REF`, otherwise `main`, then `origin/main`, then current branch), warns with ahead/behind counts when `main` and `origin/main` diverge, treats `swarm/agent-N` as local transport state, and ignores any `origin/swarm/agent-N` refs.
 3. `start.sh` launches one tmux session per agent, injects runtime env (including `ORCA_BASE_REF` when set), validates the local `br` queue workspace, and fails fast when an explicit `ORCA_BASE_REF` is invalid.
 4. `doctor.sh` runs onboarding preflight checks (`--json` available) without mutating repository or queue state.
-5. `plan.sh` computes deterministic assignment plans from queue-ready issues and label metadata (`px:exclusive`, `ck:*`), and emits machine-readable plan artifacts.
+5. `plan.sh` computes deterministic assignment plans from queue-ready issues and label metadata (`px:exclusive`, `ck:*`, `meta:tracker`), and emits machine-readable plan artifacts.
 6. `agent-loop.sh` runs one agent pass per iteration, validates explicit `ORCA_BASE_REF` overrides on startup, creates a unique per-run branch using the same base-ref precedence as setup, writes per-run logs/metrics, parses the agent summary JSON, and applies deterministic no-work drain policy.
 7. `AGENT_PROMPT.md` defines the agent contract for issue lifecycle, merge, discovery, and summary output.
 8. `with-lock.sh` provides the shared lock primitive used by queue/merge helpers.

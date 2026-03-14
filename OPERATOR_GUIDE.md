@@ -160,6 +160,7 @@ Watch/poll mode override:
 ./orca.sh monitor add --id observed-a --lifecycle persistent --tmux-target dev:main
 ./orca.sh monitor list --json
 ./orca.sh observe start --id observed-b --lifecycle ephemeral --tmux-target sandbox:main --cwd "$PWD" -- bash -lc "make test"
+bash tests/stress_monitor_registry_contention.sh                               # observed registry hardening stress target
 ./orca.sh wait --session-id "<session-id>" --timeout 900 --json         # block for completion
 find agent-logs/sessions -type f | sort | tail -n 20
 tail -n 10 agent-logs/metrics.jsonl
@@ -170,6 +171,7 @@ All status surfaces show scoped active run state (`state=running|idle`) and supp
 `orca monitor --follow` emits a merged `orca.monitor.v2` stream: managed events are passed through from `status --follow`, while observed events are generated from registry+tmux liveness transitions. In v0, missing `tmux` is a hard operational failure (exit code `3`).
 `orca monitor add/remove/list` manage only observed registry state; `monitor remove` never kills tmux sessions. `orca observe start` creates detached tmux targets and registers them atomically, rolling back tmux session creation if registry write fails.
 Observed registry loading is strict for `monitor list/add/remove` and `observe start`: malformed JSON or invalid persisted `id`/`lifecycle`/`tmux_target` values are rejected as operational failures (no auto-repair).
+`tests/stress_monitor_registry_contention.sh` is the high-contention monitor registry hardening target (multi-writer + multi-reader churn with bounded timeouts).
 `orca wait` is the non-interactive blocking primitive for automation. It supports the same session scoping (`--session-id` / `--session-prefix`) and returns deterministic exit codes (`0` success, `2` timeout, `3` scoped failure, `4` invalid usage/config). In unscoped mode it waits only on sessions active at invocation (safe default for unattended `start -> wait` flows); use `--all-history` to include historical session artifacts. When no scoped sessions exist at invocation time, it returns immediate success with reason `no_scoped_sessions`.
 
 Merged monitor JSONL example:

@@ -25,6 +25,7 @@ cp "${ROOT}/orca.sh" "${WORKTREE_DIR}/orca.sh"
 cp "${ROOT}/targets.sh" "${WORKTREE_DIR}/targets.sh"
 cp "${ROOT}/lib/observed-registry.sh" "${WORKTREE_DIR}/lib/observed-registry.sh"
 cp "${ROOT}/lib/tmux-target.sh" "${WORKTREE_DIR}/lib/tmux-target.sh"
+chmod +x "${WORKTREE_DIR}/orca.sh" "${WORKTREE_DIR}/targets.sh"
 
 mkdir -p "${WORKTREE_DIR}/agent-logs/sessions/2026/03/14/${SESSION_1}"
 cat > "${WORKTREE_DIR}/agent-logs/sessions/2026/03/14/${SESSION_1}/session.log" <<'LOG'

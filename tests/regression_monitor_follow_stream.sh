@@ -121,7 +121,7 @@ TMUX_STUB
 chmod +x "${STUB_BIN_DIR}/tmux"
 
 managed_event='{"schema_version":"orca.monitor.v2","observed_at":"2026-03-14T12:00:00Z","event_type":"run_started","event_id":"run_started:managed-1:run-0001","session_id":"managed-1","mode":"managed","tmux_target":"orca-agent-1","run":{"run_id":"run-0001","state":"running","result":null,"issue_status":null,"summary_path":null},"passthrough_marker":"keep-me"}'
-printf '%s\n' "${managed_event}" > "${MANAGED_STREAM_FILE}"
+printf '%s\n%s\n' "${managed_event}" "${managed_event}" > "${MANAGED_STREAM_FILE}"
 
 cat > "${REGISTRY_PATH}" <<'JSON'
 {"schema_version":"orca.observed.v1","updated_at":"2026-03-14T12:00:00Z","entries":[{"id":"observed-1","mode":"observed","lifecycle":"persistent","tmux_target":"obs","created_at":"2026-03-14T12:00:00Z","source":"monitor_add"}]}
@@ -152,6 +152,12 @@ fi
 
 if ! grep -Fx -- "${managed_event}" "${OUT_FILE}" >/dev/null; then
   echo "expected managed event passthrough without schema drift" >&2
+  cat "${OUT_FILE}" >&2
+  exit 1
+fi
+
+if [[ "$(jq -r 'select(.mode == "managed" and .event_id == "run_started:managed-1:run-0001") | .event_id' "${OUT_FILE}" | wc -l | tr -d '[:space:]')" -ne 1 ]]; then
+  echo "expected managed event_id run_started:managed-1:run-0001 exactly once" >&2
   cat "${OUT_FILE}" >&2
   exit 1
 fi

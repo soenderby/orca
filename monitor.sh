@@ -78,6 +78,7 @@ FOLLOW_MAX_EVENTS=0
 FOLLOW_INTERRUPTED=0
 MANAGED_FOLLOW_PID=""
 MANAGED_FOLLOW_FD=""
+declare -A MANAGED_EVENT_IDS_SEEN=()
 
 tmux_follow_health_probe() {
   local probe_output=""
@@ -309,6 +310,7 @@ start_managed_follow_stream() {
 
 stop_managed_follow_stream() {
   local managed_exit_code=0
+  local wait_attempt=0
 
   if [[ -n "${MANAGED_FOLLOW_FD}" ]]; then
     exec {MANAGED_FOLLOW_FD}<&-
@@ -318,6 +320,14 @@ stop_managed_follow_stream() {
   if [[ -n "${MANAGED_FOLLOW_PID}" ]]; then
     if kill -0 "${MANAGED_FOLLOW_PID}" >/dev/null 2>&1; then
       kill "${MANAGED_FOLLOW_PID}" >/dev/null 2>&1 || true
+      while kill -0 "${MANAGED_FOLLOW_PID}" >/dev/null 2>&1; do
+        wait_attempt=$((wait_attempt + 1))
+        if [[ "${wait_attempt}" -ge 20 ]]; then
+          kill -9 "${MANAGED_FOLLOW_PID}" >/dev/null 2>&1 || true
+          break
+        fi
+        sleep 0.1
+      done
     fi
     set +e
     wait "${MANAGED_FOLLOW_PID}" >/dev/null 2>&1
@@ -327,6 +337,23 @@ stop_managed_follow_stream() {
   fi
 
   return "${managed_exit_code}"
+}
+
+emit_managed_follow_event_if_new() {
+  local managed_event_line="$1"
+  local event_id=""
+
+  event_id="$(jq -r 'if type == "object" then (.event_id // "") else "" end' <<<"${managed_event_line}" 2>/dev/null || true)"
+  if [[ -n "${event_id}" && -n "${MANAGED_EVENT_IDS_SEEN[${event_id}]:-}" ]]; then
+    return 1
+  fi
+
+  if [[ -n "${event_id}" ]]; then
+    MANAGED_EVENT_IDS_SEEN["${event_id}"]=1
+  fi
+
+  printf '%s\n' "${managed_event_line}"
+  return 0
 }
 
 cmd_follow() {
@@ -341,6 +368,8 @@ cmd_follow() {
   local stop_requested=0
   local now_epoch=0
   local next_observed_poll_epoch=0
+
+  MANAGED_EVENT_IDS_SEEN=()
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -392,6 +421,7 @@ cmd_follow() {
 
   start_managed_follow_stream
   trap 'FOLLOW_INTERRUPTED=1' INT TERM
+  trap 'stop_managed_follow_stream >/dev/null 2>&1 || true' EXIT
 
   while true; do
     if [[ "${FOLLOW_INTERRUPTED}" -eq 1 ]]; then
@@ -422,15 +452,17 @@ cmd_follow() {
 
     if IFS= read -r -t 0.2 -u "${MANAGED_FOLLOW_FD}" managed_event_line; then
       [[ -n "${managed_event_line}" ]] || continue
-      printf '%s\n' "${managed_event_line}"
-      emitted=$((emitted + 1))
+      if emit_managed_follow_event_if_new "${managed_event_line}"; then
+        emitted=$((emitted + 1))
+      fi
       if [[ "${FOLLOW_MAX_EVENTS}" -gt 0 && "${emitted}" -ge "${FOLLOW_MAX_EVENTS}" ]]; then
         break
       fi
-      while IFS= read -r -t 0 -u "${MANAGED_FOLLOW_FD}" managed_event_line; do
+      while IFS= read -r -t 0.01 -u "${MANAGED_FOLLOW_FD}" managed_event_line; do
         [[ -n "${managed_event_line}" ]] || continue
-        printf '%s\n' "${managed_event_line}"
-        emitted=$((emitted + 1))
+        if emit_managed_follow_event_if_new "${managed_event_line}"; then
+          emitted=$((emitted + 1))
+        fi
         if [[ "${FOLLOW_MAX_EVENTS}" -gt 0 && "${emitted}" -ge "${FOLLOW_MAX_EVENTS}" ]]; then
           stop_requested=1
           break
@@ -461,7 +493,7 @@ cmd_follow() {
     fi
   done
 
-  trap - INT TERM
+  trap - INT TERM EXIT
   stop_managed_follow_stream >/dev/null 2>&1 || true
 
   if [[ "${FOLLOW_INTERRUPTED}" -eq 1 ]]; then

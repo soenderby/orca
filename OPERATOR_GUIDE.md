@@ -98,18 +98,27 @@ Label taxonomy:
 
 1. `px:exclusive`: the issue must run alone.
 2. `ck:<key>`: contention key; issues with the same key should not run in parallel.
+3. `meta:tracker`: parent/tracker issue used for coordination; excluded from default planner assignment.
 
 Precedence:
 
-1. `px:exclusive` always overrides `ck:*`.
-2. Unlabeled issues are considered parallel-allowed by default.
+1. `meta:tracker` issues are held by `plan.sh` with reason code `tracker-issue` in normal `assigned` mode.
+2. `px:exclusive` always overrides `ck:*`.
+3. Unlabeled issues are considered parallel-allowed by default.
 
 Authoring guidance:
 
 1. Use `px:exclusive` for work with broad blast radius or uncertain overlap.
 2. Use `ck:<key>` for bounded contention areas (for example `ck:queue`, `ck:docs`, `ck:agent-loop`).
 3. Reuse stable keys by subsystem so scheduling behavior stays predictable across sessions.
-4. Do not add labels by default; only label when you know there is real contention risk.
+4. Mark parent/tracker issues with `meta:tracker` at creation time; use child issues for implementation.
+5. Do not add labels by default; only label when you know there is real contention risk.
+
+Tracker lifecycle:
+
+1. Create tracker issues for cross-issue rollups and sequencing only.
+2. Keep tracker issues open while child issues are active so dependencies remain visible.
+3. Close the tracker after child issues are complete/merged and no follow-up execution remains.
 
 ## Core Workflow
 
@@ -128,7 +137,7 @@ Authoring guidance:
 ```
 
 `orca start` validates the local `br` workspace (`.beads/`) and fails fast when the queue workspace is missing/unhealthy or a non-running agent worktree is dirty.
-In default `assigned` mode, `start.sh` calls `plan.sh` to deterministically select launch assignments using queue labels (`px:exclusive`, `ck:*`) and writes an audit artifact under `agent-logs/plans/YYYY/MM/DD/`.
+In default `assigned` mode, `start.sh` calls `plan.sh` to deterministically select launch assignments using queue labels (`px:exclusive`, `ck:*`, `meta:tracker`) and writes an audit artifact under `agent-logs/plans/YYYY/MM/DD/`.
 Launch logs include planned per-session issue IDs, held/skipped reason codes, and per-issue planner decisions, so reduced launch counts are explainable from a single run log.
 Default no-work behavior is drain mode: after a small retry budget for transient races, loops stop on sustained `no_work`.
 Use `--watch` to keep polling on `no_work` instead.

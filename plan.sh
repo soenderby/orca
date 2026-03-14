@@ -205,9 +205,18 @@ plan_json="$(jq -n \
         ($issue.id) as $issue_id
         | (labels_for($issue_id)) as $labels
         | ($labels | index("px:exclusive") != null) as $is_exclusive
+        | ($labels | index("meta:tracker") != null) as $is_tracker
         | ck_keys($labels) as $issue_ck
         | intersects($issue_ck; .used_contention_keys) as $shared_ck
-        | if (.assigned_items | length) >= .slots then
+        | if $is_tracker then
+            .held_items += [{ issue_id: $issue_id, reason_code: "tracker-issue" }]
+            | .decisions += [{
+                issue_id: $issue_id,
+                action: "held",
+                reason_code: "tracker-issue",
+                labels: $labels
+              }]
+          elif (.assigned_items | length) >= .slots then
             .held_items += [{ issue_id: $issue_id, reason_code: "not-enough-slots" }]
             | .decisions += [{
                 issue_id: $issue_id,

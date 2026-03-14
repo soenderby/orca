@@ -17,6 +17,7 @@ Commands:
   status [--quick|--full] [--json] [--session-id ID] [--session-prefix PREFIX]
   status --follow [--poll-interval SECONDS] [--max-events N] [--session-id ID] [--session-prefix PREFIX]
   targets [--json] [--session-id ID] [--session-prefix PREFIX]
+  jump <target>
   monitor --follow [--poll-interval SECONDS] [--max-events N] [--session-id ID] [--session-prefix PREFIX]
   monitor add --id AGENT_ID --lifecycle LIFECYCLE --tmux-target TARGET [--cwd PATH]
   monitor remove --id AGENT_ID
@@ -58,6 +59,9 @@ case "${subcommand}" in
     ;;
   targets)
     exec "${SCRIPT_DIR}/targets.sh" "$@"
+    ;;
+  jump)
+    exec "${SCRIPT_DIR}/jump.sh" "$@"
     ;;
   monitor)
     exec "${SCRIPT_DIR}/monitor.sh" "$@"

@@ -215,4 +215,34 @@ done
 
 wait "${writer_pid}"
 
+printf '%s\n' '{"schema_version":"orca.observed.v1","updated_at":"2026-03-14T00:00:00Z","entries":[' > "${REGISTRY_PATH}"
+if orca_observed_registry_list "${REGISTRY_PATH}" >/dev/null 2>&1; then
+  echo "expected malformed registry JSON to fail load-time validation" >&2
+  exit 1
+fi
+
+cat > "${REGISTRY_PATH}" <<'JSON'
+{"schema_version":"orca.observed.v1","updated_at":"2026-03-14T00:00:00Z","entries":[{"id":"bad/id","mode":"observed","lifecycle":"forever","tmux_target":"bad-target","source":"monitor_add"}]}
+JSON
+if orca_observed_registry_list "${REGISTRY_PATH}" >/dev/null 2>&1; then
+  echo "expected semantically invalid registry entry to fail list load-time validation" >&2
+  exit 1
+fi
+if orca_observed_registry_remove "agent-z" "${REGISTRY_PATH}" >/dev/null 2>&1; then
+  echo "expected remove path to fail on semantically invalid persisted entries" >&2
+  exit 1
+fi
+
+cat > "${REGISTRY_PATH}" <<'JSON'
+{"schema_version":"orca.observed.v1","updated_at":"2026-03-14T00:00:00Z","entries":[]}
+JSON
+if orca_observed_registry_add '{"id":"bad/id","mode":"observed","lifecycle":"persistent","tmux_target":"bad-id"}' "${REGISTRY_PATH}" >/dev/null 2>&1; then
+  echo "expected add path to reject invalid id values" >&2
+  exit 1
+fi
+if orca_observed_registry_add '{"id":"agent-c","mode":"observed","lifecycle":"forever","tmux_target":"bad-lifecycle"}' "${REGISTRY_PATH}" >/dev/null 2>&1; then
+  echo "expected add path to reject invalid lifecycle values" >&2
+  exit 1
+fi
+
 echo "monitor primitive helper regression checks passed"

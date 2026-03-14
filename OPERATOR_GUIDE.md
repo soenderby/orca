@@ -169,6 +169,7 @@ tail -n 10 agent-logs/metrics.jsonl
 All status surfaces show scoped active run state (`state=running|idle`) and support session scoping with `--session-id` / `--session-prefix`.
 `orca monitor --follow` emits a merged `orca.monitor.v2` stream: managed events are passed through from `status --follow`, while observed events are generated from registry+tmux liveness transitions. In v0, missing `tmux` is a hard operational failure (exit code `3`).
 `orca monitor add/remove/list` manage only observed registry state; `monitor remove` never kills tmux sessions. `orca observe start` creates detached tmux targets and registers them atomically, rolling back tmux session creation if registry write fails.
+Observed registry loading is strict for `monitor list/add/remove` and `observe start`: malformed JSON or invalid persisted `id`/`lifecycle`/`tmux_target` values are rejected as operational failures (no auto-repair).
 `orca wait` is the non-interactive blocking primitive for automation. It supports the same session scoping (`--session-id` / `--session-prefix`) and returns deterministic exit codes (`0` success, `2` timeout, `3` scoped failure, `4` invalid usage/config). In unscoped mode it waits only on sessions active at invocation (safe default for unattended `start -> wait` flows); use `--all-history` to include historical session artifacts. When no scoped sessions exist at invocation time, it returns immediate success with reason `no_scoped_sessions`.
 
 Merged monitor JSONL example:

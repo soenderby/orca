@@ -451,7 +451,8 @@ Automation examples:
 3. `monitor add` registers existing tmux targets; `monitor remove` only updates registry state and never kills tmux sessions.
 4. `monitor list --json` returns the observed registry entries array.
 5. `observe start` creates detached tmux targets, registers them as observed, and rolls back tmux session creation if registry write fails.
-6. `monitor --follow` hard-fails with exit code `3` when `tmux` is unavailable.
+6. observed registry loading is strict on `list/add/remove/observe start`: malformed JSON or invalid persisted entry fields (`id`, `lifecycle`, `tmux_target`) are rejected with operational failure; no auto-repair/normalization is attempted.
+7. `monitor --follow` hard-fails with exit code `3` when `tmux` is unavailable.
 
 Regression checks:
 

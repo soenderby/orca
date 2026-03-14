@@ -23,6 +23,7 @@ Commands:
   observe start --id AGENT_ID --lifecycle LIFECYCLE --tmux-target TARGET --cwd PATH -- <command...>
   wait [--timeout SECONDS] [--session-id ID] [--session-prefix PREFIX] [--json]
   plan [--slots N] [--output PATH]
+  dep-sanity [--issues-jsonl PATH] [--output PATH] [--strict]
   gc-run-branches [--apply] [--base REF]
   setup-worktrees [count]
   with-lock [--scope NAME] [--timeout SECONDS] -- <command> [args...]
@@ -65,6 +66,9 @@ case "${subcommand}" in
     ;;
   plan)
     exec "${SCRIPT_DIR}/plan.sh" "$@"
+    ;;
+  dep-sanity)
+    exec "${SCRIPT_DIR}/dep-sanity.sh" "$@"
     ;;
   gc-run-branches|gc)
     exec "${SCRIPT_DIR}/gc-run-branches.sh" "$@"

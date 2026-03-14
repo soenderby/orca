@@ -138,9 +138,17 @@ Tracker lifecycle:
 
 `orca start` validates the local `br` workspace (`.beads/`) and fails fast when the queue workspace is missing/unhealthy or a non-running agent worktree is dirty.
 In default `assigned` mode, `start.sh` calls `plan.sh` to deterministically select launch assignments using queue labels (`px:exclusive`, `ck:*`, `meta:tracker`) and writes an audit artifact under `agent-logs/plans/YYYY/MM/DD/`.
+Before launch planning, `start.sh` runs a deterministic dependency sanity pass (`dep-sanity.sh`) and writes its artifact in the same plan directory.
+Default mode is `ORCA_DEP_SANITY_MODE=enforce`: launch is blocked when hazards are detected (`mixed parent-child+blocks`, active dependency cycles, active self/mutual blocking patterns). Use `ORCA_DEP_SANITY_MODE=warn` to log and proceed intentionally, or `ORCA_DEP_SANITY_MODE=off` to bypass the check.
 Launch logs include planned per-session issue IDs, held/skipped reason codes, and per-issue planner decisions, so reduced launch counts are explainable from a single run log.
 Default no-work behavior is drain mode: after a small retry budget for transient races, loops stop on sustained `no_work`.
 Use `--watch` to keep polling on `no_work` instead.
+
+Manual sanity run example:
+
+```bash
+./orca.sh dep-sanity --strict
+```
 
 Bounded mode:
 

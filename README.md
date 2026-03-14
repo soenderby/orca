@@ -114,6 +114,7 @@ Operating stance: autonomy with explicit protocol guidance (Option C; see `docs/
 - `observe start --id AGENT_ID --lifecycle LIFECYCLE --tmux-target TARGET --cwd PATH -- <command...>`
 - `wait [--timeout SECONDS] [--poll-interval SECONDS] [--session-id ID] [--session-prefix PREFIX] [--all-history] [--json]`
 - `plan [--slots N] [--output PATH]`
+- `dep-sanity [--issues-jsonl PATH] [--output PATH] [--strict]`
 - `gc-run-branches [--apply] [--base REF]`
 - `setup-worktrees [count]`
 - `with-lock [--scope NAME] [--timeout SECONDS] -- <command> [args...]`
@@ -127,6 +128,7 @@ Helper scripts (direct invocation):
 - `./queue-write-main.sh [options] -- <queue-command> [args...]`
 - `./queue-mutate.sh [options] <mutation> [args...]`
 - `./merge-main.sh [--source BRANCH] [options]`
+- `./dep-sanity.sh [--issues-jsonl PATH] [--output PATH] [--strict]`
 - `./gc-run-branches.sh [--apply] [--base REF] [--repo PATH]`
 
 ## Improvement Policy
@@ -140,18 +142,19 @@ Orca is a `tmux`-backed multi-agent loop with one persistent git worktree per ag
 1. `bootstrap.sh` provides guided Ubuntu/WSL onboarding with deterministic step logging (`--yes`, `--dry-run`) and fail-hard Codex auth gating.
 2. `setup-worktrees.sh` creates missing `worktrees/agent-N` on branch `swarm/agent-N` from the detected base ref (`ORCA_BASE_REF`, otherwise `main`, then `origin/main`, then current branch), warns with ahead/behind counts when `main` and `origin/main` diverge, treats `swarm/agent-N` as local transport state, and ignores any `origin/swarm/agent-N` refs.
 3. `start.sh` launches one tmux session per agent, injects runtime env (including `ORCA_BASE_REF` when set), validates the local `br` queue workspace, and fails fast when an explicit `ORCA_BASE_REF` is invalid.
-4. `doctor.sh` runs onboarding preflight checks (`--json` available) without mutating repository or queue state.
-5. `plan.sh` computes deterministic assignment plans from queue-ready issues and label metadata (`px:exclusive`, `ck:*`, `meta:tracker`), and emits machine-readable plan artifacts.
-6. `agent-loop.sh` runs one agent pass per iteration, validates explicit `ORCA_BASE_REF` overrides on startup, creates a unique per-run branch using the same base-ref precedence as setup, writes per-run logs/metrics, parses the agent summary JSON, and applies deterministic no-work drain policy.
-7. `AGENT_PROMPT.md` defines the agent contract for issue lifecycle, merge, discovery, and summary output.
-8. `with-lock.sh` provides the shared lock primitive used by queue/merge helpers.
-9. `queue-write-main.sh` performs lock-guarded queue mutations on `ORCA_PRIMARY_REPO/main` with explicit actor validation.
-10. `queue-mutate.sh` provides safe queue mutation wrappers (`claim`, `comment`, `close`, `dep-add`) routed through `queue-write-main.sh`.
-11. `merge-main.sh` performs lock-guarded merge/push and rejects `.beads`-carrying source branches.
-11. `gc-run-branches.sh` safely prunes stale local `swarm/*-run-*` branches with dry-run by default.
-12. `status.sh` provides health and observability snapshots, including `br` workspace checks.
-13. `wait.sh` blocks until scoped sessions complete and returns deterministic automation exit codes.
-14. `stop.sh` terminates active sessions.
+4. `dep-sanity.sh` checks dependency graph hazards (mixed `parent-child` + `blocks` pairs, active-work cycles, and active self/mutual blocking patterns) and emits a deterministic JSON report.
+5. `doctor.sh` runs onboarding preflight checks (`--json` available) without mutating repository or queue state.
+6. `plan.sh` computes deterministic assignment plans from queue-ready issues and label metadata (`px:exclusive`, `ck:*`, `meta:tracker`), and emits machine-readable plan artifacts.
+7. `agent-loop.sh` runs one agent pass per iteration, validates explicit `ORCA_BASE_REF` overrides on startup, creates a unique per-run branch using the same base-ref precedence as setup, writes per-run logs/metrics, parses the agent summary JSON, and applies deterministic no-work drain policy.
+8. `AGENT_PROMPT.md` defines the agent contract for issue lifecycle, merge, discovery, and summary output.
+9. `with-lock.sh` provides the shared lock primitive used by queue/merge helpers.
+10. `queue-write-main.sh` performs lock-guarded queue mutations on `ORCA_PRIMARY_REPO/main` with explicit actor validation.
+11. `queue-mutate.sh` provides safe queue mutation wrappers (`claim`, `comment`, `close`, `dep-add`) routed through `queue-write-main.sh`.
+12. `merge-main.sh` performs lock-guarded merge/push and rejects `.beads`-carrying source branches.
+13. `gc-run-branches.sh` safely prunes stale local `swarm/*-run-*` branches with dry-run by default.
+14. `status.sh` provides health and observability snapshots, including `br` workspace checks.
+15. `wait.sh` blocks until scoped sessions complete and returns deterministic automation exit codes.
+16. `stop.sh` terminates active sessions.
 
 ## File Roles
 
@@ -159,6 +162,7 @@ Orca is a `tmux`-backed multi-agent loop with one persistent git worktree per ag
 - `bootstrap.sh`: guided Ubuntu/WSL onboarding with dependency install, `br` setup, queue initialization, and Codex auth gating
 - `setup-worktrees.sh`: creates and verifies persistent agent worktrees
 - `start.sh`: launches tmux-backed agent loops
+- `dep-sanity.sh`: dependency graph hazard checker for planning/launch safety
 - `doctor.sh`: preflight readiness checks for setup/operations (`--json` machine-readable mode)
 - `plan.sh`: deterministic assignment planner with machine-readable output
 - `agent-loop.sh`: per-agent run loop that executes the prompt, captures run artifacts, and records summary/metrics
@@ -351,6 +355,7 @@ Startup checks:
 16. `PROMPT_TEMPLATE` exists
 17. `ORCA_PRIMARY_REPO` points to a valid git worktree
 18. `ORCA_WITH_LOCK_PATH`, `ORCA_QUEUE_READ_MAIN_PATH`, `ORCA_QUEUE_WRITE_MAIN_PATH`, and `ORCA_MERGE_MAIN_PATH` are executable
+19. `ORCA_DEP_SANITY_MODE` is `enforce|warn|off` and, when enabled, `ORCA_DEP_SANITY_CHECK_PATH` is executable
 
 Behavior:
 
@@ -362,10 +367,12 @@ Behavior:
 6. injects runtime knobs into each session
 7. default assignment mode is `assigned`: each launched session receives one ready issue ID via `ORCA_ASSIGNED_ISSUE_ID`
 8. assigned mode uses `plan.sh` (deterministic, metadata-driven) to select assignments up to launch capacity; plan artifacts are written under `agent-logs/plans/YYYY/MM/DD/`
-9. explicit override `ORCA_ASSIGNMENT_MODE=self-select` restores unassigned self-selection behavior for recovery/debugging
-10. in `self-select`, `ORCA_FORCE_COUNT=1` bypasses launch capping and launches all requested non-running sessions
-11. logs launch planning and summary counts (`requested`, `running`, `ready`, `launchable/launched`, `force_count`, `assignment_mode`) plus assignment-plan details (per-slot issue IDs, held/skipped reason codes, and per-issue planner decisions)
-12. refuses to launch sessions when a non-running agent worktree is dirty, with per-path status output
+9. runs `dep-sanity.sh` before launch planning and writes a dependency sanity artifact under `agent-logs/plans/YYYY/MM/DD/`
+10. `ORCA_DEP_SANITY_MODE=enforce` (default) blocks launch when hazards are detected; `warn` logs hazards and proceeds; `off` skips the check
+11. explicit override `ORCA_ASSIGNMENT_MODE=self-select` restores unassigned self-selection behavior for recovery/debugging
+12. in `self-select`, `ORCA_FORCE_COUNT=1` bypasses launch capping and launches all requested non-running sessions
+13. logs launch planning and summary counts (`requested`, `running`, `ready`, `launchable/launched`, `force_count`, `assignment_mode`) plus assignment-plan details (per-slot issue IDs, held/skipped reason codes, and per-issue planner decisions)
+14. refuses to launch sessions when a non-running agent worktree is dirty, with per-path status output
 
 ### `agent-loop.sh`
 

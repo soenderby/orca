@@ -49,6 +49,8 @@ ORCA_WITH_LOCK_PATH="${ORCA_WITH_LOCK_PATH:-}"
 ORCA_QUEUE_READ_MAIN_PATH="${ORCA_QUEUE_READ_MAIN_PATH:-}"
 ORCA_QUEUE_WRITE_MAIN_PATH="${ORCA_QUEUE_WRITE_MAIN_PATH:-}"
 ORCA_MERGE_MAIN_PATH="${ORCA_MERGE_MAIN_PATH:-}"
+ORCA_DEP_SANITY_MODE="${ORCA_DEP_SANITY_MODE:-enforce}"
+ORCA_DEP_SANITY_CHECK_PATH="${ORCA_DEP_SANITY_CHECK_PATH:-}"
 ORCA_BASE_REF="${ORCA_BASE_REF:-}"
 
 session_date_path() {
@@ -240,6 +242,46 @@ build_assignment_plan() {
   printf '%s\t%s\n' "${plan_path}" "${plan_json}"
 }
 
+run_dependency_sanity_check() {
+  local report_dir
+  local report_path
+  local report_json
+  local hazard_count
+
+  if [[ "${ORCA_DEP_SANITY_MODE}" == "off" ]]; then
+    echo "[start] dependency sanity check: skipped (mode=off)"
+    return 0
+  fi
+
+  report_dir="${ROOT}/agent-logs/plans/$(date -u +%Y/%m/%d)"
+  report_path="${report_dir}/dep-sanity-$(date -u +%Y%m%dT%H%M%SZ)-$$.json"
+
+  if ! report_json="$("${ORCA_DEP_SANITY_CHECK_PATH}" --output "${report_path}")"; then
+    echo "[start] dependency sanity check failed to run (${ORCA_DEP_SANITY_CHECK_PATH})" >&2
+    return 1
+  fi
+
+  if ! hazard_count="$(jq -re '.summary.hazard_count' <<< "${report_json}" 2>/dev/null)"; then
+    echo "[start] dependency sanity check produced invalid output" >&2
+    return 1
+  fi
+
+  echo "[start] dependency sanity: artifact=${report_path} hazards=${hazard_count} mode=${ORCA_DEP_SANITY_MODE}"
+  if [[ "${hazard_count}" -gt 0 ]]; then
+    while IFS= read -r hazard_line; do
+      [[ -z "${hazard_line}" ]] && continue
+      echo "[start] dependency hazard: ${hazard_line}" >&2
+    done < <(jq -r '.hazards[] | "code=\(.code) details=\(.details | tojson)"' <<< "${report_json}")
+
+    if [[ "${ORCA_DEP_SANITY_MODE}" == "enforce" ]]; then
+      echo "[start] refusing to launch: dependency graph hazards detected (set ORCA_DEP_SANITY_MODE=warn to proceed intentionally)" >&2
+      return 1
+    fi
+  fi
+
+  return 0
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --runs)
@@ -307,6 +349,7 @@ ORCA_QUEUE_READ_MAIN_PATH="${ORCA_QUEUE_READ_MAIN_PATH:-${ROOT}/queue-read-main.
 ORCA_QUEUE_WRITE_MAIN_PATH="${ORCA_QUEUE_WRITE_MAIN_PATH:-${ROOT}/queue-write-main.sh}"
 ORCA_MERGE_MAIN_PATH="${ORCA_MERGE_MAIN_PATH:-${ROOT}/merge-main.sh}"
 ORCA_BR_GUARD_PATH="${ORCA_BR_GUARD_PATH:-${ROOT}/br-guard.sh}"
+ORCA_DEP_SANITY_CHECK_PATH="${ORCA_DEP_SANITY_CHECK_PATH:-${ROOT}/dep-sanity.sh}"
 
 if ! [[ "${COUNT}" =~ ^[1-9][0-9]*$ ]]; then
   echo "[start] count must be a positive integer: ${COUNT}" >&2
@@ -373,6 +416,11 @@ if [[ "${ORCA_ASSIGNMENT_MODE}" != "assigned" && "${ORCA_ASSIGNMENT_MODE}" != "s
   exit 1
 fi
 
+if [[ "${ORCA_DEP_SANITY_MODE}" != "enforce" && "${ORCA_DEP_SANITY_MODE}" != "warn" && "${ORCA_DEP_SANITY_MODE}" != "off" ]]; then
+  echo "[start] ORCA_DEP_SANITY_MODE must be 'enforce', 'warn', or 'off': ${ORCA_DEP_SANITY_MODE}" >&2
+  exit 1
+fi
+
 if [[ -n "${ORCA_MODE_ID}" && ! "${ORCA_MODE_ID}" =~ ^[A-Za-z0-9._-]+$ ]]; then
   echo "[start] ORCA_MODE_ID must contain only letters, digits, dot, underscore, or dash: ${ORCA_MODE_ID}" >&2
   exit 1
@@ -426,6 +474,11 @@ if [[ ! -x "${ORCA_BR_GUARD_PATH}" ]]; then
   exit 1
 fi
 
+if [[ "${ORCA_DEP_SANITY_MODE}" != "off" && ! -x "${ORCA_DEP_SANITY_CHECK_PATH}" ]]; then
+  echo "[start] ORCA_DEP_SANITY_CHECK_PATH must be executable when sanity check is enabled: ${ORCA_DEP_SANITY_CHECK_PATH}" >&2
+  exit 1
+fi
+
 if ! validate_explicit_base_ref "${ROOT}"; then
   exit 1
 fi
@@ -442,6 +495,7 @@ echo "[start] run mode: ${mode_message}"
 
 "${SCRIPT_DIR}/setup-worktrees.sh" "${COUNT}"
 validate_all_worktrees_before_launch
+run_dependency_sanity_check
 
 running_sessions=0
 launch_candidates=0

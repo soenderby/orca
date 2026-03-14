@@ -18,6 +18,11 @@ trap cleanup EXIT
 
 mkdir -p "${TEST_ROOT}/.beads" "${TEST_ROOT}/worktrees" "${TEST_BIN}" "${HARNESS_DIR}" "${STATE_DIR}"
 touch "${STATE_TMUX_FILE}"
+cat > "${TEST_ROOT}/.beads/issues.jsonl" <<'JSONL'
+{"id":"orca-exclusive","title":"exclusive","status":"open","dependencies":[]}
+{"id":"orca-normal-1","title":"n1","status":"open","dependencies":[]}
+{"id":"orca-normal-2","title":"n2","status":"open","dependencies":[]}
+JSONL
 cat > "${TEST_ROOT}/AGENT_PROMPT.md" <<'EOF'
 test prompt
 EOF
@@ -169,6 +174,8 @@ chmod +x "${TEST_BIN}/tmux"
 
 cp "${ROOT}/start.sh" "${HARNESS_DIR}/start.sh"
 chmod +x "${HARNESS_DIR}/start.sh"
+cp "${ROOT}/dep-sanity.sh" "${HARNESS_DIR}/dep-sanity.sh"
+chmod +x "${HARNESS_DIR}/dep-sanity.sh"
 
 cat > "${HARNESS_DIR}/setup-worktrees.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -243,9 +250,11 @@ output="$(
   ORCA_QUEUE_WRITE_MAIN_PATH="${TEST_ROOT}/queue-write-main.sh" \
   ORCA_MERGE_MAIN_PATH="${TEST_ROOT}/merge-main.sh" \
   ORCA_BR_GUARD_PATH="${TEST_ROOT}/br-guard.sh" \
+  ORCA_DEP_SANITY_CHECK_PATH="${HARNESS_DIR}/dep-sanity.sh" \
   bash "${HARNESS_DIR}/start.sh" 2 --runs 1 2>&1
 )"
 
+printf '%s\n' "${output}" | grep -F "[start] dependency sanity: artifact=" >/dev/null
 printf '%s\n' "${output}" | grep -F "[start] assignment plan: artifact=" >/dev/null
 printf '%s\n' "${output}" | grep -F "requested_slots=2 assigned=1 held=2" >/dev/null
 printf '%s\n' "${output}" | grep -F "assignment held: issue=orca-normal-1 reason=exclusive-already-selected" >/dev/null

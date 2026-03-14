@@ -16,6 +16,10 @@ Commands:
   stop
   status [--quick|--full] [--json] [--session-id ID] [--session-prefix PREFIX]
   status --follow [--poll-interval SECONDS] [--max-events N] [--session-id ID] [--session-prefix PREFIX]
+  monitor add --id AGENT_ID --lifecycle LIFECYCLE --tmux-target TARGET [--cwd PATH]
+  monitor remove --id AGENT_ID
+  monitor list [--json]
+  observe start --id AGENT_ID --lifecycle LIFECYCLE --tmux-target TARGET --cwd PATH -- <command...>
   wait [--timeout SECONDS] [--session-id ID] [--session-prefix PREFIX] [--json]
   plan [--slots N] [--output PATH]
   gc-run-branches [--apply] [--base REF]
@@ -48,6 +52,12 @@ case "${subcommand}" in
     ;;
   status)
     exec "${SCRIPT_DIR}/status.sh" "$@"
+    ;;
+  monitor)
+    exec "${SCRIPT_DIR}/monitor.sh" "$@"
+    ;;
+  observe)
+    exec "${SCRIPT_DIR}/observe.sh" "$@"
     ;;
   wait)
     exec "${SCRIPT_DIR}/wait.sh" "$@"

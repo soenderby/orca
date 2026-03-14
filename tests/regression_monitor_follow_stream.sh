@@ -8,9 +8,11 @@ STUB_BIN_DIR="${TMP_DIR}/bin"
 NO_TMUX_BIN_DIR="${TMP_DIR}/no-tmux-bin"
 REGISTRY_PATH="${TMP_DIR}/state/orca/observed-sessions.json"
 TMUX_SESSIONS_FILE="${TMP_DIR}/tmux-sessions"
+TMUX_HEALTH_MODE_FILE="${TMP_DIR}/tmux-health-mode"
 MANAGED_STREAM_FILE="${TMP_DIR}/managed-stream.jsonl"
 OUT_FILE="${TMP_DIR}/monitor-follow.jsonl"
 FILTER_OUT_FILE="${TMP_DIR}/monitor-follow-filtered.jsonl"
+RUNTIME_FAIL_OUT_FILE="${TMP_DIR}/monitor-follow-runtime-fail.jsonl"
 
 cleanup() {
   git -C "${ROOT}" worktree remove --force "${WORKTREE_DIR}" >/dev/null 2>&1 || true
@@ -34,10 +36,11 @@ wait_for_pid() {
     elapsed=$((elapsed + 1))
   done
 
-  set +e
-  wait "${pid}"
-  wait_rc=$?
-  set -e
+  if wait "${pid}"; then
+    wait_rc=0
+  else
+    wait_rc=$?
+  fi
   return "${wait_rc}"
 }
 
@@ -84,6 +87,19 @@ cat > "${STUB_BIN_DIR}/tmux" <<'TMUX_STUB'
 set -euo pipefail
 
 sessions_file="${ORCA_TEST_TMUX_SESSIONS:?missing ORCA_TEST_TMUX_SESSIONS}"
+health_mode_file="${ORCA_TEST_TMUX_HEALTH_MODE_FILE:-}"
+
+if [[ "${1:-}" == "start-server" ]]; then
+  mode="ok"
+  if [[ -n "${health_mode_file}" && -f "${health_mode_file}" ]]; then
+    mode="$(cat "${health_mode_file}")"
+  fi
+  if [[ "${mode}" == "fail" ]]; then
+    echo "failed to connect to tmux server" >&2
+    exit 1
+  fi
+  exit 0
+fi
 
 if [[ "${1:-}" == "has-session" && "${2:-}" == "-t" && -n "${3:-}" ]]; then
   if grep -Fx -- "${3}" "${sessions_file}" >/dev/null 2>&1; then
@@ -112,12 +128,14 @@ cat > "${REGISTRY_PATH}" <<'JSON'
 JSON
 
 printf '%s\n' "obs" "other" > "${TMUX_SESSIONS_FILE}"
+echo "ok" > "${TMUX_HEALTH_MODE_FILE}"
 
 (
   cd "${WORKTREE_DIR}"
   PATH="${STUB_BIN_DIR}:/usr/bin:/bin" \
     ORCA_OBSERVED_REGISTRY_PATH="${REGISTRY_PATH}" \
     ORCA_TEST_TMUX_SESSIONS="${TMUX_SESSIONS_FILE}" \
+    ORCA_TEST_TMUX_HEALTH_MODE_FILE="${TMUX_HEALTH_MODE_FILE}" \
     ORCA_TEST_STATUS_EMIT=1 \
     ORCA_TEST_STATUS_STREAM_FILE="${MANAGED_STREAM_FILE}" \
     bash ./orca.sh monitor --follow --poll-interval 1 --max-events 3 > "${OUT_FILE}"
@@ -178,6 +196,7 @@ printf '%s\n' "obs" "other" > "${TMUX_SESSIONS_FILE}"
   PATH="${STUB_BIN_DIR}:/usr/bin:/bin" \
     ORCA_OBSERVED_REGISTRY_PATH="${REGISTRY_PATH}" \
     ORCA_TEST_TMUX_SESSIONS="${TMUX_SESSIONS_FILE}" \
+    ORCA_TEST_TMUX_HEALTH_MODE_FILE="${TMUX_HEALTH_MODE_FILE}" \
     ORCA_TEST_STATUS_EMIT=0 \
     bash ./orca.sh monitor --follow --poll-interval 1 --max-events 1 --session-id observed-1 > "${FILTER_OUT_FILE}"
 ) &
@@ -209,6 +228,42 @@ if jq -e 'select(.session_id == "ignored-1")' "${FILTER_OUT_FILE}" >/dev/null; t
   exit 1
 fi
 
+cat > "${REGISTRY_PATH}" <<'JSON'
+{"schema_version":"orca.observed.v1","updated_at":"2026-03-14T12:06:00Z","entries":[{"id":"observed-runtime","mode":"observed","lifecycle":"persistent","tmux_target":"obs","created_at":"2026-03-14T12:06:00Z","source":"monitor_add"}]}
+JSON
+printf '%s\n' "obs" "other" > "${TMUX_SESSIONS_FILE}"
+echo "ok" > "${TMUX_HEALTH_MODE_FILE}"
+
+(
+  cd "${WORKTREE_DIR}"
+  PATH="${STUB_BIN_DIR}:/usr/bin:/bin" \
+    ORCA_OBSERVED_REGISTRY_PATH="${REGISTRY_PATH}" \
+    ORCA_TEST_TMUX_SESSIONS="${TMUX_SESSIONS_FILE}" \
+    ORCA_TEST_TMUX_HEALTH_MODE_FILE="${TMUX_HEALTH_MODE_FILE}" \
+    ORCA_TEST_STATUS_EMIT=0 \
+    bash ./orca.sh monitor --follow --poll-interval 1 --max-events 0 > "${RUNTIME_FAIL_OUT_FILE}"
+) &
+runtime_fail_pid=$!
+
+sleep 2
+echo "fail" > "${TMUX_HEALTH_MODE_FILE}"
+
+set +e
+wait_for_pid "${runtime_fail_pid}" 20
+runtime_fail_rc=$?
+set -e
+if [[ "${runtime_fail_rc}" -ne 3 ]]; then
+  echo "expected runtime tmux probe failure to exit 3, got ${runtime_fail_rc}" >&2
+  cat "${RUNTIME_FAIL_OUT_FILE}" >&2
+  exit 1
+fi
+
+if jq -e 'select(.mode == "observed" and .event_type == "session_down")' "${RUNTIME_FAIL_OUT_FILE}" >/dev/null; then
+  echo "runtime tmux probe failure must not emit observed session_down transitions" >&2
+  cat "${RUNTIME_FAIL_OUT_FILE}" >&2
+  exit 1
+fi
+
 ln -s "$(command -v git)" "${NO_TMUX_BIN_DIR}/git"
 ln -s "$(command -v jq)" "${NO_TMUX_BIN_DIR}/jq"
 ln -s "$(command -v dirname)" "${NO_TMUX_BIN_DIR}/dirname"
@@ -225,6 +280,23 @@ no_tmux_rc=$?
 set -e
 if [[ "${no_tmux_rc}" -ne 3 ]]; then
   echo "expected monitor --follow without tmux to exit 3, got ${no_tmux_rc}" >&2
+  exit 1
+fi
+
+echo "fail" > "${TMUX_HEALTH_MODE_FILE}"
+set +e
+(
+  cd "${WORKTREE_DIR}"
+  PATH="${STUB_BIN_DIR}:/usr/bin:/bin" \
+    ORCA_OBSERVED_REGISTRY_PATH="${REGISTRY_PATH}" \
+    ORCA_TEST_TMUX_SESSIONS="${TMUX_SESSIONS_FILE}" \
+    ORCA_TEST_TMUX_HEALTH_MODE_FILE="${TMUX_HEALTH_MODE_FILE}" \
+    bash ./orca.sh monitor --follow --max-events 1 >/dev/null 2>&1
+)
+unusable_tmux_rc=$?
+set -e
+if [[ "${unusable_tmux_rc}" -ne 3 ]]; then
+  echo "expected monitor --follow with unusable tmux probe to exit 3, got ${unusable_tmux_rc}" >&2
   exit 1
 fi
 

@@ -79,6 +79,90 @@ FOLLOW_INTERRUPTED=0
 MANAGED_FOLLOW_PID=""
 MANAGED_FOLLOW_FD=""
 
+tmux_follow_health_probe() {
+  local probe_output=""
+  local probe_rc=0
+
+  set +e
+  probe_output="$(tmux start-server 2>&1)"
+  probe_rc=$?
+  set -e
+
+  if [[ "${probe_rc}" -ne 0 ]]; then
+    if [[ -n "${probe_output}" ]]; then
+      echo "${probe_output}" >&2
+    fi
+    return 1
+  fi
+
+  return 0
+}
+
+tmux_follow_target_exists() {
+  local target="${1:-}"
+  local parsed=""
+  local kind=""
+  local session=""
+  local window=""
+  local cmd_output=""
+  local cmd_rc=0
+  local windows_output=""
+
+  parsed="$(_orca_tmux_target_parse_components "${target}")" || return 2
+  IFS=$'\t' read -r kind session window <<<"${parsed}"
+
+  set +e
+  cmd_output="$(tmux has-session -t "${session}" 2>&1)"
+  cmd_rc=$?
+  set -e
+  if [[ "${cmd_rc}" -eq 0 ]]; then
+    :
+  elif [[ "${cmd_rc}" -eq 1 ]]; then
+    if [[ -z "${cmd_output}" || "${cmd_output}" == *"can't find session"* ]]; then
+      return 1
+    fi
+    if [[ -n "${cmd_output}" ]]; then
+      echo "${cmd_output}" >&2
+    fi
+    return 2
+  else
+    if [[ -n "${cmd_output}" ]]; then
+      echo "${cmd_output}" >&2
+    fi
+    return 2
+  fi
+
+  if [[ "${kind}" == "session" ]]; then
+    return 0
+  fi
+
+  set +e
+  windows_output="$(tmux list-windows -F '#W' -t "${session}" 2>&1)"
+  cmd_rc=$?
+  set -e
+  if [[ "${cmd_rc}" -ne 0 ]]; then
+    if [[ "${cmd_rc}" -eq 1 ]]; then
+      if [[ -z "${windows_output}" || "${windows_output}" == *"can't find session"* ]]; then
+        return 1
+      fi
+      if [[ -n "${windows_output}" ]]; then
+        echo "${windows_output}" >&2
+      fi
+      return 2
+    fi
+    if [[ -n "${windows_output}" ]]; then
+      echo "${windows_output}" >&2
+    fi
+    return 2
+  fi
+
+  if grep -Fx -- "${window}" <<<"${windows_output}" >/dev/null; then
+    return 0
+  fi
+
+  return 1
+}
+
 session_matches_filter() {
   local session_id="${1:-}"
 
@@ -104,9 +188,14 @@ collect_observed_follow_snapshot_json() {
   local row_json=""
   local rows_json="[]"
   local observed_at=""
+  local target_probe_rc=0
 
   if ! entries_json="$(orca_observed_registry_list)"; then
     fail "failed to read observed registry"
+  fi
+
+  if ! tmux_follow_health_probe; then
+    fail "tmux health probe failed during monitor --follow"
   fi
 
   while IFS= read -r entry_json; do
@@ -119,8 +208,13 @@ collect_observed_follow_snapshot_json() {
     tmux_target="$(jq -r '.tmux_target' <<<"${entry_json}")"
     lifecycle="$(jq -r '.lifecycle // ""' <<<"${entry_json}")"
     active=false
-    if orca_tmux_target_exists "${tmux_target}"; then
+    if tmux_follow_target_exists "${tmux_target}"; then
       active=true
+    else
+      target_probe_rc=$?
+      if [[ "${target_probe_rc}" -ne 1 ]]; then
+        fail "tmux target probe failed during monitor --follow: ${tmux_target}"
+      fi
     fi
     observed_at="$(date -Iseconds)"
 
@@ -291,6 +385,9 @@ cmd_follow() {
   fi
   if ! command -v tmux >/dev/null 2>&1; then
     fail "tmux is required for monitor --follow"
+  fi
+  if ! tmux_follow_health_probe; then
+    fail "tmux health probe failed for monitor --follow"
   fi
 
   start_managed_follow_stream

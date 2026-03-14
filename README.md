@@ -386,7 +386,7 @@ Signal handling:
 1. defaults to `--quick` for a fast active-operations view (health summary, active sessions, current claims, latest run activity, high-signal alerts)
 2. supports `--full` for complete diagnostics (legacy output depth)
 3. supports `--json` machine-readable output with explicit top-level schema version (`schema_version: "orca.status.v1"`)
-4. supports `--follow` to emit structured JSON lines lifecycle events (`schema_version: "orca.monitor.v1"`, event types: `session_started`, `run_started`, `run_completed`, `run_failed`, `loop_stopped`)
+4. supports `--follow` to emit structured JSON lines lifecycle events (`schema_version: "orca.monitor.v2"`, event types: `session_up`, `session_down`, `run_started`, `run_completed`, `run_failed`)
 5. supports session scoping with `--session-id` (exact match) and `--session-prefix` (prefix match) across quick/full/json/follow surfaces
 6. reports active run state per scoped session (`state=running|idle`) from live run artifacts so operators can distinguish in-progress execution from idle/stalled state
 7. in full mode, prints queue backend diagnostics for `br` (version, workspace presence, doctor result, sync status)

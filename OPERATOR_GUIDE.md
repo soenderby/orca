@@ -161,7 +161,7 @@ find agent-logs/sessions -type f | sort | tail -n 20
 tail -n 10 agent-logs/metrics.jsonl
 ```
 
-`orca status` defaults to quick mode for frequent checks. Use `--full` when you need complete `br` diagnostics, worktree hygiene detail, and extended metrics sections. `--json` emits machine-readable status with `schema_version=orca.status.v1`, and `--follow` emits machine-readable lifecycle events with `schema_version=orca.monitor.v1`.
+`orca status` defaults to quick mode for frequent checks. Use `--full` when you need complete `br` diagnostics, worktree hygiene detail, and extended metrics sections. `--json` emits machine-readable status with `schema_version=orca.status.v1`, and `--follow` emits machine-readable lifecycle events with `schema_version=orca.monitor.v2` (`session_up`, `session_down`, `run_started`, `run_completed`, `run_failed`).
 All status surfaces show scoped active run state (`state=running|idle`) and support session scoping with `--session-id` / `--session-prefix`.
 `orca wait` is the non-interactive blocking primitive for automation. It supports the same session scoping (`--session-id` / `--session-prefix`) and returns deterministic exit codes (`0` success, `2` timeout, `3` scoped failure, `4` invalid usage/config). In unscoped mode it waits only on sessions active at invocation (safe default for unattended `start -> wait` flows); use `--all-history` to include historical session artifacts. When no scoped sessions exist at invocation time, it returns immediate success with reason `no_scoped_sessions`.
 

@@ -459,6 +459,7 @@ Regression checks:
 - `bash tests/regression_monitor_primitives.sh`
 - `bash tests/regression_monitor_observe_commands.sh`
 - `bash tests/regression_monitor_follow_stream.sh`
+- `bash tests/stress_monitor_registry_contention.sh` (longer-running registry hardening stress test)
 
 JSONL examples:
 

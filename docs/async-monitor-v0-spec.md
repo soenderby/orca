@@ -22,7 +22,8 @@ v0 must support:
 ### In scope
 - local terminal output only,
 - user-global observed-target registry,
-- notify-only behavior.
+- notify-only behavior,
+- composition over existing Orca status/events.
 
 ### Out of scope
 - daemon/service mode,
@@ -32,44 +33,79 @@ v0 must support:
 
 ---
 
-## 3) Command surface
+## 3) Core contracts required for layering
+
+This spec is intentionally layered on top of core Orca behavior. To keep monitor/observe as composition (not deep coupling), core contracts must be explicit and stable.
+
+### 3.1 Canonical follow event contract
+
+`./orca.sh status --follow` is the canonical managed-event source.
+
+Required canonical event schema for follow streams:
+- `schema_version = "orca.monitor.v2"`
+- event types: `session_up`, `session_down`, `run_started`, `run_completed`, `run_failed`
+- `session_started` and `loop_stopped` are not emitted in v2
+
+Each emitted event MUST include:
+- `schema_version`
+- `event_id`
+- `event_type`
+- `observed_at`
+- `session_id`
+- `mode` (`managed` or `observed`)
+- `tmux_target` (string; nullable only when truly unavailable)
+
+Optional fields:
+- `run` (required for `run_*`, omitted/null for session liveness events)
+- `lifecycle` (`ephemeral|persistent`, optional metadata)
+
+### 3.2 Event identity and de-dup
+
+- `event_id` MUST be stable enough for downstream de-duplication.
+- Follow emitters MUST only emit transitions (edge-triggered), not level-triggered repeats.
+
+---
+
+## 4) Command surface
 
 Top-level additions to `orca.sh`:
 - `monitor`
 - `observe`
 
-### 3.1 `monitor --follow`
+### 4.1 `monitor --follow`
 
 ```bash
 ./orca.sh monitor --follow \
   [--poll-interval SECONDS] \
+  [--max-events N] \
   [--session-id ID] \
-  [--session-prefix PREFIX] \
-  [--json]
+  [--session-prefix PREFIX]
 ```
 
 Behavior:
-- Foreground stream only.
-- Merges:
+- foreground stream only,
+- merged JSONL output in canonical event schema (`orca.monitor.v2`),
+- merges:
   - managed lifecycle events from `./orca.sh status --follow`
-  - observed target liveness events from registry + tmux polling
+  - observed target liveness events from registry + tmux polling.
 
 Defaults:
 - `--poll-interval 5`
+- `--max-events 0` (unbounded)
 
 Filtering:
-- `--session-id` / `--session-prefix` match `session_id` in emitted events.
+- `--session-id` / `--session-prefix` match emitted `session_id`.
 - For observed targets, `session_id` is the registry `id`.
 
-### 3.2 `monitor add`
+### 4.2 `monitor add`
 
 ```bash
-./orca.sh monitor add --id AGENT_ID --profile PROFILE --tmux-target TARGET [--cwd PATH]
+./orca.sh monitor add --id AGENT_ID --lifecycle LIFECYCLE --tmux-target TARGET [--cwd PATH]
 ```
 
 Registers an existing tmux target for observation.
 
-### 3.3 `monitor remove`
+### 4.3 `monitor remove`
 
 ```bash
 ./orca.sh monitor remove --id AGENT_ID
@@ -77,7 +113,7 @@ Registers an existing tmux target for observation.
 
 Removes registry entry only. Never kills tmux processes.
 
-### 3.4 `monitor list`
+### 4.4 `monitor list`
 
 ```bash
 ./orca.sh monitor list [--json]
@@ -85,12 +121,12 @@ Removes registry entry only. Never kills tmux processes.
 
 Lists observed registry entries.
 
-### 3.5 `observe start`
+### 4.5 `observe start`
 
 ```bash
 ./orca.sh observe start \
   --id AGENT_ID \
-  --profile PROFILE \
+  --lifecycle LIFECYCLE \
   --tmux-target TARGET \
   --cwd PATH \
   -- <command...>
@@ -102,7 +138,7 @@ Creates a detached tmux target and registers it.
 
 ---
 
-## 4) Target model and identity
+## 5) Target model and identity
 
 `TARGET` supports:
 - `session`
@@ -127,11 +163,11 @@ Implications:
 
 ---
 
-## 5) Validation rules
+## 6) Validation rules
 
 Common:
 1. `AGENT_ID` matches `^[a-zA-Z0-9._:-]+$`
-2. `PROFILE` is one of: `fire_forget`, `persistent`
+2. `LIFECYCLE` is one of: `ephemeral`, `persistent`
 3. `id` is unique in registry
 4. `tmux_target` is unique in registry
 
@@ -153,7 +189,7 @@ Failure rollback:
 
 ---
 
-## 6) Observed registry
+## 7) Observed registry
 
 Location (default):
 - `${XDG_STATE_HOME:-$HOME/.local/state}/orca/observed-sessions.json`
@@ -166,7 +202,7 @@ Override:
 
 Write semantics:
 - lock-guarded,
-- atomic write (`tmp` + rename).
+- atomic write (`tmp` + rename in same directory).
 
 Schema:
 
@@ -178,10 +214,11 @@ Schema:
     {
       "id": "librarian",
       "mode": "observed",
-      "profile": "persistent",
+      "lifecycle": "persistent",
       "tmux_target": "work:librarian",
       "cwd": "/home/jsk/code/ai-resources",
       "command": "python3 tools/librarian_loop.py",
+      "repo_root": "/mnt/c/code/ai-resources",
       "created_at": "2026-03-12T10:00:00+01:00",
       "source": "observe_start"
     }
@@ -191,25 +228,30 @@ Schema:
 
 Notes:
 - `command` may be omitted for `monitor add` entries.
+- `repo_root` is optional metadata for operator context (global registry remains intentional).
 - `source` is `monitor_add` or `observe_start`.
 
 ---
 
-## 7) Monitor event schema
+## 8) Monitor event schema
 
-`schema_version = orca.monitor.v1`
+`schema_version = orca.monitor.v2`
 
 ```json
 {
-  "schema_version": "orca.monitor.v1",
-  "event_type": "run_started|run_completed|run_failed|loop_stopped|session_up|session_down",
+  "schema_version": "orca.monitor.v2",
+  "event_id": "run_completed:orca-agent-1-20260312T103000Z:run-0003",
+  "event_type": "run_started|run_completed|run_failed|session_up|session_down",
   "observed_at": "2026-03-12T10:32:10+01:00",
-  "session_id": "orca-agent-1-20260312T103000",
+  "session_id": "orca-agent-1-20260312T103000Z",
   "mode": "managed|observed",
-  "profile": "fire_forget|persistent",
+  "lifecycle": "ephemeral|persistent|null",
   "tmux_target": "orca-agent-1",
   "run": {
     "run_id": "run-0003",
+    "state": "completed",
+    "result": "completed",
+    "issue_status": "closed",
     "summary_path": "agent-logs/sessions/.../summary.json"
   }
 }
@@ -222,11 +264,16 @@ Field semantics:
 - `tmux_target`
   - managed: tmux session name
   - observed: registered `session` or `session:window`
-- `run` is omitted/null for observed liveness events.
+- `run`
+  - required for `run_started|run_completed|run_failed`
+  - omitted/null for `session_up|session_down`
+- `lifecycle`
+  - optional metadata (`ephemeral|persistent`)
+  - may be null/omitted when unknown
 
 ---
 
-## 8) Exit codes
+## 9) Exit codes
 
 - `0` success
 - `3` operational failure
@@ -236,7 +283,7 @@ Field semantics:
 
 ---
 
-## 9) Acceptance tests
+## 10) Acceptance tests
 
 1. `monitor add` rejects invalid/non-existing targets.
 2. `monitor add` rejects duplicate `id` and duplicate `tmux_target`.
@@ -244,6 +291,17 @@ Field semantics:
 4. `observe start` fails if parsed target session already exists.
 5. `observe start` fails on invalid cwd with no side effects.
 6. `monitor remove` only removes registry entry.
-7. `monitor --follow` emits managed lifecycle events (`run_started`, `run_completed`, `run_failed`, `loop_stopped`).
-8. `monitor --follow` emits `session_up/session_down` for observed targets.
-9. Registry writes stay atomic under concurrent add/remove operations.
+7. `status --follow` emits canonical managed events in `orca.monitor.v2` with event types limited to `session_up|session_down|run_started|run_completed|run_failed`.
+8. `monitor --follow` emits managed events without schema drift from `status --follow`.
+9. `monitor --follow` emits `session_up/session_down` for observed targets.
+10. Follow events include stable `event_id` and do not emit duplicate transition events for unchanged state.
+11. Registry writes stay atomic under concurrent add/remove operations.
+
+---
+
+## 11) Breaking-change note
+
+This v0 spec intentionally defines a clean-break follow contract:
+- `session_started` is replaced by `session_up`
+- `loop_stopped` is replaced by `session_down`
+- follow schema version is `orca.monitor.v2`

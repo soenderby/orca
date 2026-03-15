@@ -139,8 +139,8 @@ for removed_subcommand in add remove list; do
   run_orca monitor "${removed_subcommand}" >/dev/null 2>&1
   removed_rc=$?
   set -e
-  if [[ "${removed_rc}" -ne 4 ]]; then
-    echo "expected monitor ${removed_subcommand} to be removed with exit 4, got ${removed_rc}" >&2
+  if [[ "${removed_rc}" -ne 1 ]]; then
+    echo "expected monitor ${removed_subcommand} to be unknown command with exit 1, got ${removed_rc}" >&2
     exit 1
   fi
 done

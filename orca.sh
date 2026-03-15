@@ -18,7 +18,6 @@ Commands:
   follow [--poll-interval SECONDS] [--max-events N]
   targets [--json] [--session-id ID] [--session-prefix PREFIX]
   jump <target>
-  monitor (deprecated)
   observe add --id AGENT_ID --lifecycle LIFECYCLE --tmux-target TARGET [--cwd PATH]
   observe remove --id AGENT_ID
   observe list [--json]
@@ -71,9 +70,6 @@ case "${subcommand}" in
     ;;
   jump)
     exec "${SCRIPT_DIR}/jump.sh" "$@"
-    ;;
-  monitor)
-    exec "${SCRIPT_DIR}/monitor.sh" "$@"
     ;;
   observe)
     exec "${SCRIPT_DIR}/observe.sh" "$@"

@@ -8,6 +8,50 @@ Its goal is to help a developer learn and operationalize how to use autonomous a
 
 The execution layer works. In past use, failures and rework traced primarily to task specification quality — unclear intent, missing constraints, absent design context — not to execution mechanics. Providing agents with specific tools for recurring tasks was the other significant factor in effectiveness. These observations should inform where effort is spent, but they are not permanent truths — revisit as the system matures.
 
+## Product and Interface Principles
+
+These principles guide Orca as a single-user tool that is expected to grow while staying usable.
+
+1. **CLI is the single control plane.**
+   Orca remains CLI-first for both human operators and agent workflows.
+
+2. **Orca is an execution kernel.**
+   Orca focuses on queue ingestion, execution, supervision, and intervention.
+
+3. **Human supervision latency is a primary UX target.**
+   The operator should be able to determine what is running, what finished, and what needs attention next with minimal friction.
+
+4. **Asynchronous execution by default.**
+   Launch work without blocking operator interaction; use explicit blocking only when needed.
+
+5. **Safe parallelism is core behavior.**
+   Queue consistency, contention management, and merge/write safety are default expectations.
+
+6. **Complexity is budgeted.**
+   New CLI surface must justify itself and should generally replace or simplify existing surface.
+
+7. **Delete aggressively.**
+   Deprecated command paths should not remain indefinitely.
+
+8. **Structured observability over ad-hoc debugging.**
+   Behavior should be diagnosable through stable event and artifact contracts.
+
+9. **Integrate companion tools instead of absorbing everything.**
+   Orca should integrate with external memory/intake tools rather than becoming a monolith.
+
+10. **Extract abstractions only when reuse is proven.**
+    Prefer extraction after demonstrated multi-consumer need.
+
+## CLI Budget (Working Constraints)
+
+1. Top-level command count: <= 12.
+2. Daily-driver command count (kept in working memory): <= 7.
+3. Maximum options per command: <= 8.
+4. Maximum nesting depth: 2 levels (`orca <command> <subcommand>`).
+5. Additive CLI surface should remove or simplify existing surface within two iterations unless explicitly experimental.
+6. Experimental additions should be clearly labeled and easy to remove.
+7. Orca remains CLI-first for both human operators and agents.
+
 ## Design Principles
 
 ### 1. The harness handles transport and coordination tools; agents handle decisions

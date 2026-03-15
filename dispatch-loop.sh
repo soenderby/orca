@@ -11,7 +11,7 @@ This is intentionally NOT an `orca` subcommand.
 
 Behavior:
   - Poll open/ready/session signals.
-  - If no active sessions and ready work exists, launch a bounded Orca start wave.
+  - If no active-running work and ready work exists, launch a bounded Orca start wave.
   - Continue until stopped, or until open count reaches zero (default).
 
 Options:
@@ -23,7 +23,7 @@ Options:
 
   --open-count-cmd <cmd>     Command returning integer open count
   --ready-count-cmd <cmd>    Command returning integer ready count
-  --active-count-cmd <cmd>   Command returning integer active session count
+  --active-count-cmd <cmd>   Command returning integer active-running count
   --launch-cmd <cmd>         Launch command (uses DISPATCH_SLOTS env var)
 
   --once                     Run a single poll cycle, then exit
@@ -34,7 +34,7 @@ Options:
 Default command hooks:
   open   : br list --status open --json 2>/dev/null | jq "length"
   ready  : br ready --json 2>/dev/null | jq "length"
-  active : ./orca.sh status --quick --json 2>/dev/null | jq -r ".signals.sessions_total // 0"
+  active : ./orca.sh status --quick --json 2>/dev/null | jq -r ".signals.active_running_count // 0"
   launch : ./orca.sh start "${DISPATCH_SLOTS}" --runs 1
 USAGE
 }
@@ -113,7 +113,7 @@ DRY_RUN=0
 
 OPEN_COUNT_CMD='br list --status open --json 2>/dev/null | jq "length"'
 READY_COUNT_CMD='br ready --json 2>/dev/null | jq "length"'
-ACTIVE_COUNT_CMD='./orca.sh status --quick --json 2>/dev/null | jq -r ".signals.sessions_total // 0"'
+ACTIVE_COUNT_CMD='./orca.sh status --quick --json 2>/dev/null | jq -r ".signals.active_running_count // 0"'
 LAUNCH_CMD='./orca.sh start "${DISPATCH_SLOTS}" --runs 1'
 
 while [[ $# -gt 0 ]]; do

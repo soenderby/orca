@@ -9,7 +9,7 @@ It is intentionally **not** part of the `orca` command surface.
 When you want to keep work flowing without manually re-running `orca start`, this loop:
 
 1. polls queue/session signals,
-2. launches a bounded wave when no agent sessions are active and ready work exists,
+2. launches a bounded wave when no active-running work exists and ready work is available,
 3. repeats until stopped (or until open count reaches zero, by default).
 
 This allows you to keep chatting with an orchestrating agent while execution continues asynchronously in the background.
@@ -26,8 +26,8 @@ On each cycle, the loop runs these command hooks inside the repo:
   - `br list --status open --json 2>/dev/null | jq "length"`
 - ready count:
   - `br ready --json 2>/dev/null | jq "length"`
-- active session count:
-  - `./orca.sh status --quick --json 2>/dev/null | jq -r ".signals.sessions_total // 0"`
+- active running count:
+  - `./orca.sh status --quick --json 2>/dev/null | jq -r ".signals.active_running_count // 0"`
 - launch command (when active=0 and ready>0):
   - `./orca.sh start "${DISPATCH_SLOTS}" --runs 1`
 

@@ -20,6 +20,7 @@ Current documentation:
 10. `docs/async-monitor-v0-acceptance-matrix.md`: v0 acceptance criterion to regression coverage matrix + sign-off bundle
 11. `docs/async-agent-supervision-plan.md`: goals/boundary/future notes (non-spec context)
 12. `docs/user-stories.md`: workflow narratives and friction input used to guide design
+13. `docs/dispatch-loop.md`: external async dispatcher utility (not part of `orca` CLI)
 
 ## Entrypoints
 
@@ -193,6 +194,7 @@ Orca is a `tmux`-backed multi-agent loop with one persistent git worktree per ag
 - `jump.sh`: resolves logical target ids (or explicit tmux targets) and jumps tmux clients
 - `wait.sh`: blocking completion monitor for scoped sessions with deterministic exit codes
 - `stop.sh`: stops active agent sessions
+- `dispatch-loop.sh`: external async dispatch utility that auto-launches bounded `orca start` waves (not an `orca` subcommand)
 - `AGENT_PROMPT.md`: agent instruction contract used by `agent-loop.sh`
 - `OPERATOR_GUIDE.md`: human operator playbook and design rationale
 

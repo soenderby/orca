@@ -8,6 +8,7 @@ STUB_BIN_DIR="${TMP_DIR}/bin"
 TMUX_MODE_FILE="${TMP_DIR}/tmux-mode"
 OUT_FILE_DEFAULT="${TMP_DIR}/follow-default.jsonl"
 OUT_FILE_REPLAY="${TMP_DIR}/follow-replay.jsonl"
+OUT_FILE_STRUCTURED="${TMP_DIR}/follow-structured.log"
 
 cleanup() {
   git -C "${ROOT}" worktree remove --force "${WORKTREE_DIR}" >/dev/null 2>&1 || true
@@ -17,12 +18,15 @@ trap cleanup EXIT
 
 git -C "${ROOT}" worktree add --detach "${WORKTREE_DIR}" HEAD >/dev/null
 cp "${ROOT}/status.sh" "${WORKTREE_DIR}/status.sh"
+mkdir -p "${WORKTREE_DIR}/lib"
+cp "${ROOT}/lib/follow-render.sh" "${WORKTREE_DIR}/lib/follow-render.sh"
 chmod +x "${WORKTREE_DIR}/status.sh"
 mkdir -p "${STUB_BIN_DIR}" "${WORKTREE_DIR}/agent-logs/sessions/2026/03/12"
 
 SESSION_ID="orca-agent-1-20260312T130000Z"
 RUN_ID="0001-20260312T130000000000000Z"
 RUN_ID_REPLAY="0002-20260312T140000000000000Z"
+RUN_ID_STRUCTURED="0003-20260312T150000000000000Z"
 RUN_DIR="${WORKTREE_DIR}/agent-logs/sessions/2026/03/12/${SESSION_ID}/runs/${RUN_ID}"
 mkdir -p "${RUN_DIR}"
 
@@ -196,6 +200,55 @@ actual_replay_ids="$(jq -r '.event_id' "${OUT_FILE_REPLAY}" | paste -sd ',' -)"
 if [[ "${actual_replay_ids}" != "${expected_replay_ids}" ]]; then
   echo "unexpected replay event_id order; expected ${expected_replay_ids}, got ${actual_replay_ids}" >&2
   cat "${OUT_FILE_REPLAY}" >&2
+  exit 1
+fi
+
+echo "active" > "${TMUX_MODE_FILE}"
+RUN_DIR_STRUCTURED="${WORKTREE_DIR}/agent-logs/sessions/2026/03/12/${SESSION_ID}/runs/${RUN_ID_STRUCTURED}"
+mkdir -p "${RUN_DIR_STRUCTURED}"
+cat > "${RUN_DIR_STRUCTURED}/run.log" <<'LOG'
+[2026-03-12T15:00:01Z] [agent-1] running agent command
+LOG
+
+(
+  cd "${WORKTREE_DIR}"
+  PATH="${STUB_BIN_DIR}:/usr/bin:/bin" ORCA_TEST_TMUX_MODE_FILE="${TMUX_MODE_FILE}" \
+    bash ./status.sh --follow --render structured --session-id "${SESSION_ID}" --poll-interval 1 --max-events 2 > "${OUT_FILE_STRUCTURED}"
+) &
+structured_pid=$!
+
+sleep 2
+echo "inactive" > "${TMUX_MODE_FILE}"
+cat >> "${RUN_DIR_STRUCTURED}/run.log" <<'LOG'
+[2026-03-12T15:00:10Z] [agent-1] agent command exited with 0 after 9s
+LOG
+cat > "${RUN_DIR_STRUCTURED}/summary.json" <<'JSON'
+{"issue_id":"orca-follow-structured","result":"completed","issue_status":"closed","merged":true,"loop_action":"stop","loop_action_reason":"done","notes":"ok"}
+JSON
+
+wait "${structured_pid}"
+
+if [[ "$(wc -l < "${OUT_FILE_STRUCTURED}" | tr -d '[:space:]')" -ne 2 ]]; then
+  echo "expected exactly 2 structured follow events" >&2
+  cat "${OUT_FILE_STRUCTURED}" >&2
+  exit 1
+fi
+
+if jq -e . "${OUT_FILE_STRUCTURED}" >/dev/null 2>&1; then
+  echo "structured status follow output should not be valid JSONL" >&2
+  cat "${OUT_FILE_STRUCTURED}" >&2
+  exit 1
+fi
+
+if ! grep -E '^.+ mode=managed event_type=run_completed session_id='"${SESSION_ID}"' run_id='"${RUN_ID_STRUCTURED}"' target=(orca-agent-1|none)$' "${OUT_FILE_STRUCTURED}" >/dev/null; then
+  echo "structured status follow missing run_completed line with required fields/order" >&2
+  cat "${OUT_FILE_STRUCTURED}" >&2
+  exit 1
+fi
+
+if ! grep -E '^.+ mode=managed event_type=session_down session_id='"${SESSION_ID}"' target=(orca-agent-1|none)$' "${OUT_FILE_STRUCTURED}" >/dev/null; then
+  echo "structured status follow missing session_down line with required fields/order" >&2
+  cat "${OUT_FILE_STRUCTURED}" >&2
   exit 1
 fi
 

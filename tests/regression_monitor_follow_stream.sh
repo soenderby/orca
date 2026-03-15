@@ -12,6 +12,7 @@ TMUX_HEALTH_MODE_FILE="${TMP_DIR}/tmux-health-mode"
 MANAGED_STREAM_FILE="${TMP_DIR}/managed-stream.jsonl"
 MANAGED_FLAP_STREAM_FILE="${TMP_DIR}/managed-flap-stream.jsonl"
 OUT_FILE="${TMP_DIR}/monitor-follow.jsonl"
+STRUCTURED_OUT_FILE="${TMP_DIR}/monitor-follow-structured.log"
 MANAGED_FLAP_OUT_FILE="${TMP_DIR}/monitor-follow-managed-flap.jsonl"
 FILTER_OUT_FILE="${TMP_DIR}/monitor-follow-filtered.jsonl"
 RUNTIME_FAIL_OUT_FILE="${TMP_DIR}/monitor-follow-runtime-fail.jsonl"
@@ -72,6 +73,8 @@ git -C "${ROOT}" worktree add --detach "${WORKTREE_DIR}" HEAD >/dev/null
 mkdir -p "${STUB_BIN_DIR}" "${NO_TMUX_BIN_DIR}" "$(dirname "${REGISTRY_PATH}")"
 cp "${ROOT}/orca.sh" "${WORKTREE_DIR}/orca.sh"
 cp "${ROOT}/monitor.sh" "${WORKTREE_DIR}/monitor.sh"
+mkdir -p "${WORKTREE_DIR}/lib"
+cp "${ROOT}/lib/follow-render.sh" "${WORKTREE_DIR}/lib/follow-render.sh"
 chmod +x "${WORKTREE_DIR}/orca.sh" "${WORKTREE_DIR}/monitor.sh"
 
 cat > "${WORKTREE_DIR}/status.sh" <<'STATUS_STUB'
@@ -281,6 +284,63 @@ fi
 if [[ "$(jq -r 'select(.mode == "observed" and .event_type == "session_up" and .session_id == "observed-1") | .event_id' "${OUT_FILE}" | wc -l | tr -d '[:space:]')" -ne 0 ]]; then
   echo "expected zero observed session_up events for observed-1 in default mode" >&2
   cat "${OUT_FILE}" >&2
+  exit 1
+fi
+
+printf '%s\n' "${managed_event}" > "${MANAGED_STREAM_FILE}"
+cat > "${REGISTRY_PATH}" <<'JSON'
+{"schema_version":"orca.observed.v1","updated_at":"2026-03-14T12:04:00Z","entries":[{"id":"observed-1","mode":"observed","lifecycle":"persistent","tmux_target":"obs","created_at":"2026-03-14T12:04:00Z","source":"monitor_add"}]}
+JSON
+printf '%s\n' "obs" "other" > "${TMUX_SESSIONS_FILE}"
+echo "ok" > "${TMUX_HEALTH_MODE_FILE}"
+
+(
+  cd "${WORKTREE_DIR}"
+  PATH="${STUB_BIN_DIR}:/usr/bin:/bin" \
+    ORCA_OBSERVED_REGISTRY_PATH="${REGISTRY_PATH}" \
+    ORCA_TEST_TMUX_SESSIONS="${TMUX_SESSIONS_FILE}" \
+    ORCA_TEST_TMUX_HEALTH_MODE_FILE="${TMUX_HEALTH_MODE_FILE}" \
+    ORCA_TEST_STATUS_EMIT=1 \
+    ORCA_TEST_STATUS_STREAM_FILE="${MANAGED_STREAM_FILE}" \
+    bash ./orca.sh monitor --follow --render structured --poll-interval 1 --max-events 2 > "${STRUCTURED_OUT_FILE}"
+) &
+structured_follow_pid=$!
+
+sleep 2
+printf '%s\n' "other" > "${TMUX_SESSIONS_FILE}"
+
+if ! wait_for_pid "${structured_follow_pid}" 20; then
+  echo "monitor --follow --render structured did not complete merged stream scenario" >&2
+  exit 1
+fi
+
+if [[ "$(wc -l < "${STRUCTURED_OUT_FILE}" | tr -d '[:space:]')" -ne 2 ]]; then
+  echo "expected exactly two structured monitor follow events" >&2
+  cat "${STRUCTURED_OUT_FILE}" >&2
+  exit 1
+fi
+
+if jq -e . "${STRUCTURED_OUT_FILE}" >/dev/null 2>&1; then
+  echo "structured monitor follow output should not be valid JSONL" >&2
+  cat "${STRUCTURED_OUT_FILE}" >&2
+  exit 1
+fi
+
+if ! grep -E '^.+ mode=managed event_type=run_started session_id=managed-1 run_id=run-0001 target=orca-agent-1$' "${STRUCTURED_OUT_FILE}" >/dev/null; then
+  echo "structured monitor follow missing managed run_started line with required fields/order" >&2
+  cat "${STRUCTURED_OUT_FILE}" >&2
+  exit 1
+fi
+
+if ! grep -E '^.+ mode=observed event_type=session_down session_id=observed-1 target=obs$' "${STRUCTURED_OUT_FILE}" >/dev/null; then
+  echo "structured monitor follow missing observed session_down line with required fields/order" >&2
+  cat "${STRUCTURED_OUT_FILE}" >&2
+  exit 1
+fi
+
+if [[ "$(head -n 1 "${STRUCTURED_OUT_FILE}" | grep -c 'mode=managed event_type=run_started')" -ne 1 ]]; then
+  echo "expected managed event to remain first in structured merged output" >&2
+  cat "${STRUCTURED_OUT_FILE}" >&2
   exit 1
 fi
 

@@ -107,10 +107,10 @@ Operating stance: autonomy with explicit protocol guidance (Option C; see `docs/
 - `doctor [--json]`
 - `stop`
 - `status [--quick|--full] [--json] [--session-id ID] [--session-prefix PREFIX]`
-- `status --follow [--poll-interval SECONDS] [--max-events N] [--replay-baseline] [--session-id ID] [--session-prefix PREFIX]`
+- `status --follow [--poll-interval SECONDS] [--max-events N] [--replay-baseline] [--render MODE] [--session-id ID] [--session-prefix PREFIX]`
 - `targets [--json] [--session-id ID] [--session-prefix PREFIX]`
 - `jump <target>`
-- `monitor --follow [--poll-interval SECONDS] [--max-events N] [--replay-baseline] [--session-id ID] [--session-prefix PREFIX]`
+- `monitor --follow [--poll-interval SECONDS] [--max-events N] [--replay-baseline] [--render MODE] [--session-id ID] [--session-prefix PREFIX]`
 - `monitor add --id AGENT_ID --lifecycle LIFECYCLE --tmux-target TARGET [--cwd PATH]`
 - `monitor remove --id AGENT_ID`
 - `monitor list [--json]`
@@ -440,6 +440,9 @@ Managed follow v2 contract (frozen target for monitor layering; implemented in `
 - stream ordering: follow output is append-only JSONL; events are emitted as new lines at the bottom in emission order; previously emitted lines are never rewritten
 - default startup behavior: `--follow` starts from "now" (captures baseline snapshot without replaying historical startup transitions)
 - opt-in replay behavior: `--replay-baseline` restores startup baseline replay transitions for catch-up tooling
+- render mode: `--render jsonl` (default) preserves machine-readable JSONL; `--render structured` emits a human-readable append-only line per event
+- structured format contract (stable field order): `<observed_at> mode=<mode> event_type=<event_type> session_id=<session_id> [run_id=<run_id>] target=<tmux_target>`
+- structured required fields: `observed_at`, `mode`, `event_type`, `session_id`, `target`; `run_id` appears only for run events
 - v2 excludes legacy names `session_started` and `loop_stopped`
 
 Tuning knobs:
@@ -456,6 +459,7 @@ Performance regression check:
 - `bash tests/status_metrics_perf_check.sh`
 - `bash tests/status_session_scope_and_progress.sh`
 - `bash tests/regression_status_follow_monitor.sh`
+- `bash tests/regression_follow_render_structured.sh`
 
 Automation examples:
 
@@ -466,6 +470,9 @@ Automation examples:
 # Follow lifecycle transitions for one session and react to failures
 ./orca.sh status --follow --session-id "<session-id>" \
   | jq -r 'select(.event_type == "run_failed") | "FAILED " + .session_id + " run=" + (.run.run_id // "none")'
+
+# Human-readable stream (same ordering/semantics, rendering-only)
+./orca.sh status --follow --render structured --session-id "<session-id>"
 ```
 
 ### `targets.sh`
@@ -513,6 +520,7 @@ Pane B (interactive target selection + jump):
    - observed-target liveness transitions from registry + tmux polling
 2. observed transitions are edge-triggered (`session_up`/`session_down`) and deduplicated across unchanged snapshots.
 3. merged output remains append-only JSONL: newest events are appended at the bottom in the order monitor emits them, and prior lines are never rewritten.
+   - with `--render structured`, output becomes append-only human-readable lines in the same emission order (event semantics unchanged)
 4. `monitor add` registers existing tmux targets; `monitor remove` only updates registry state and never kills tmux sessions.
 5. `monitor list --json` returns the observed registry entries array.
 6. `observe start` creates detached tmux targets, registers them as observed, and rolls back tmux session creation if registry write fails.
@@ -525,6 +533,7 @@ Regression checks:
 - `bash tests/regression_monitor_primitives.sh`
 - `bash tests/regression_monitor_observe_commands.sh`
 - `bash tests/regression_monitor_follow_stream.sh`
+- `bash tests/regression_follow_render_structured.sh`
 - `bash tests/stress_monitor_registry_contention.sh` (longer-running registry hardening stress test)
 
 JSONL examples:

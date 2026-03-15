@@ -17,8 +17,9 @@ Current documentation:
 7. `OPERATOR_GUIDE.md`: operator playbook
 8. `SESSION_PRIMER.md`: single-session interaction contract and quick-prime text
 9. `docs/async-monitor-v0-spec.md`: authoritative v0 CLI and data schema spec for monitor/observe workflows
-10. `docs/async-agent-supervision-plan.md`: goals/boundary/future notes (non-spec context)
-11. `docs/user-stories.md`: workflow narratives and friction input used to guide design
+10. `docs/async-monitor-v0-acceptance-matrix.md`: v0 acceptance criterion to regression coverage matrix + sign-off bundle
+11. `docs/async-agent-supervision-plan.md`: goals/boundary/future notes (non-spec context)
+12. `docs/user-stories.md`: workflow narratives and friction input used to guide design
 
 ## Entrypoints
 

@@ -46,6 +46,28 @@ wait_for_pid() {
   return "${wait_rc}"
 }
 
+count_managed_follow_children() {
+  local status_script_path="$1"
+  local count=0
+  local pgrep_rc=0
+
+  set +e
+  count="$(pgrep -f -c "^[b]ash ${status_script_path} --follow" 2>/dev/null)"
+  pgrep_rc=$?
+  set -e
+
+  if [[ "${pgrep_rc}" -eq 1 ]]; then
+    echo "0"
+    return 0
+  fi
+  if [[ "${pgrep_rc}" -ne 0 ]]; then
+    echo "0"
+    return 0
+  fi
+
+  echo "${count}"
+}
+
 git -C "${ROOT}" worktree add --detach "${WORKTREE_DIR}" HEAD >/dev/null
 mkdir -p "${STUB_BIN_DIR}" "${NO_TMUX_BIN_DIR}" "$(dirname "${REGISTRY_PATH}")"
 cp "${ROOT}/orca.sh" "${WORKTREE_DIR}/orca.sh"
@@ -295,6 +317,12 @@ echo "ok" > "${TMUX_HEALTH_MODE_FILE}"
 runtime_fail_pid=$!
 
 sleep 2
+runtime_managed_children="$(count_managed_follow_children "${WORKTREE_DIR}/status.sh")"
+if [[ "${runtime_managed_children}" -lt 1 ]]; then
+  echo "expected managed status follow child to start before runtime failure" >&2
+  exit 1
+fi
+
 echo "fail" > "${TMUX_HEALTH_MODE_FILE}"
 
 set +e
@@ -304,6 +332,19 @@ set -e
 if [[ "${runtime_fail_rc}" -ne 3 ]]; then
   echo "expected runtime tmux probe failure to exit 3, got ${runtime_fail_rc}" >&2
   cat "${RUNTIME_FAIL_OUT_FILE}" >&2
+  exit 1
+fi
+
+runtime_cleanup_attempt=0
+runtime_managed_children="$(count_managed_follow_children "${WORKTREE_DIR}/status.sh")"
+while [[ "${runtime_managed_children}" -gt 0 && "${runtime_cleanup_attempt}" -lt 20 ]]; do
+  sleep 0.1
+  runtime_cleanup_attempt=$((runtime_cleanup_attempt + 1))
+  runtime_managed_children="$(count_managed_follow_children "${WORKTREE_DIR}/status.sh")"
+done
+if [[ "${runtime_managed_children}" -ne 0 ]]; then
+  echo "expected runtime tmux probe failure to clean up managed status follow child" >&2
+  ps -eo pid=,args= | grep -F -- "${WORKTREE_DIR}/status.sh" >&2 || true
   exit 1
 fi
 

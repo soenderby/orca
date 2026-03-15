@@ -45,6 +45,8 @@ Required canonical event schema for follow streams:
 - `schema_version = "orca.monitor.v2"`
 - event types: `session_up`, `session_down`, `run_started`, `run_completed`, `run_failed`
 - `session_started` and `loop_stopped` are not emitted in v2
+- output transport is append-only JSONL; each emitted event is appended as a new line at stream bottom
+- ordering guarantee is emission order (line order on stdout); previously emitted lines are never rewritten
 
 Each emitted event MUST include:
 - `schema_version`
@@ -108,6 +110,7 @@ Behavior:
 - merges:
   - managed lifecycle events from `./orca.sh status --follow`
   - observed target liveness events from registry + tmux polling,
+- merged stream is append-only JSONL with newest events appended at bottom in monitor emission order,
 - hard-fails if `tmux` is unavailable (no degraded mode in v0).
 
 Defaults:

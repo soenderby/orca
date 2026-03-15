@@ -436,6 +436,7 @@ Managed follow v2 contract (frozen target for monitor layering; implemented in `
   - `run_failed:<session_id>:<run_id>`
 - managed `session_down` semantics: emit only on tmux liveness transition `active -> inactive`; never infer from graceful loop stop or run completion
 - transition-only behavior: unchanged snapshots must not re-emit the same lifecycle transition
+- stream ordering: follow output is append-only JSONL; events are emitted as new lines at the bottom in emission order; previously emitted lines are never rewritten
 - v2 excludes legacy names `session_started` and `loop_stopped`
 
 Tuning knobs:
@@ -508,11 +509,12 @@ Pane B (interactive target selection + jump):
    - managed events from `status --follow` (passthrough, no schema drift)
    - observed-target liveness transitions from registry + tmux polling
 2. observed transitions are edge-triggered (`session_up`/`session_down`) and deduplicated across unchanged snapshots.
-3. `monitor add` registers existing tmux targets; `monitor remove` only updates registry state and never kills tmux sessions.
-4. `monitor list --json` returns the observed registry entries array.
-5. `observe start` creates detached tmux targets, registers them as observed, and rolls back tmux session creation if registry write fails.
-6. observed registry loading is strict on `list/add/remove/observe start`: malformed JSON or invalid persisted entry fields (`id`, `lifecycle`, `tmux_target`) are rejected with operational failure; no auto-repair/normalization is attempted.
-7. `monitor --follow` hard-fails with exit code `3` when `tmux` is unavailable.
+3. merged output remains append-only JSONL: newest events are appended at the bottom in the order monitor emits them, and prior lines are never rewritten.
+4. `monitor add` registers existing tmux targets; `monitor remove` only updates registry state and never kills tmux sessions.
+5. `monitor list --json` returns the observed registry entries array.
+6. `observe start` creates detached tmux targets, registers them as observed, and rolls back tmux session creation if registry write fails.
+7. observed registry loading is strict on `list/add/remove/observe start`: malformed JSON or invalid persisted entry fields (`id`, `lifecycle`, `tmux_target`) are rejected with operational failure; no auto-repair/normalization is attempted.
+8. `monitor --follow` hard-fails with exit code `3` when `tmux` is unavailable.
 
 Regression checks:
 

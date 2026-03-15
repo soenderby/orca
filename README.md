@@ -138,6 +138,17 @@ Helper scripts (direct invocation):
 
 Prioritize changes based on observed problems from real runs. Capture proposed improvements as issues with evidence (logs, summaries, metrics), then implement the smallest change that addresses the observed failure mode.
 
+## CLI Decision Rationale (Prototype Phase)
+
+These CLI principles are intentionally explicit during the current prototype phase so we can evolve behavior based on real operator usage:
+
+1. Prototype-first break policy: compatibility is not required yet; breaking changes are acceptable when they simplify the model or fix demonstrated operator pain.
+2. Follow is for human live awareness: follow surfaces are optimized for operators watching transitions in real time.
+3. Status is snapshot-oriented: `status` remains the point-in-time health/diagnostic view; follow is opt-in when continuous awareness is needed.
+4. Complexity must be earned: new flags, modes, and coupling are added only when validated by concrete user/operator need.
+
+See `OPERATOR_GUIDE.md` and `docs/async-monitor-v0-spec.md` for command-level application of these principles.
+
 ## Architecture Overview
 
 Orca is a `tmux`-backed multi-agent loop with one persistent git worktree per agent:
@@ -414,7 +425,7 @@ Signal handling:
 1. defaults to `--quick` for a fast active-operations view (health summary, active sessions, current claims, latest run activity, high-signal alerts)
 2. supports `--full` for complete diagnostics (legacy output depth)
 3. supports `--json` machine-readable output with explicit top-level schema version (`schema_version: "orca.status.v1"`)
-4. supports `--follow` to emit structured JSON lines lifecycle events (`schema_version: "orca.monitor.v2"`, event types: `session_up`, `session_down`, `run_started`, `run_completed`, `run_failed`)
+4. supports `--follow` for live operator awareness; default render is machine-readable JSONL lifecycle events (`schema_version: "orca.monitor.v2"`, event types: `session_up`, `session_down`, `run_started`, `run_completed`, `run_failed`) with optional structured human rendering
 5. supports session scoping with `--session-id` (exact match) and `--session-prefix` (prefix match) across quick/full/json/follow surfaces
 6. reports active run state per scoped session (`state=running|idle`) from live run artifacts so operators can distinguish in-progress execution from idle/stalled state
 7. in full mode, prints queue backend diagnostics for `br` (version, workspace presence, doctor result, sync status)
@@ -444,6 +455,11 @@ Managed follow v2 contract (frozen target for monitor layering; implemented in `
 - structured format contract (stable field order): `<observed_at> mode=<mode> event_type=<event_type> session_id=<session_id> [run_id=<run_id>] target=<tmux_target>`
 - structured required fields: `observed_at`, `mode`, `event_type`, `session_id`, `target`; `run_id` appears only for run events
 - v2 excludes legacy names `session_started` and `loop_stopped`
+
+Intent alignment (see "CLI Decision Rationale (Prototype Phase)"):
+- treat `status` quick/full/json as snapshot surfaces
+- treat `status --follow` as the managed live-awareness stream
+- keep managed event payloads simple and additive unless operators need richer semantics
 
 Tuning knobs:
 
@@ -499,7 +515,7 @@ Regression check:
 
 Minimal two-pane operator workflow:
 
-Pane A (foreground monitor stream):
+Pane A (foreground live-awareness stream):
 
 ```bash
 ./orca.sh monitor --follow --session-prefix "orca-agent-"
@@ -516,7 +532,7 @@ Pane B (interactive target selection + jump):
 ### `monitor.sh` + `observe.sh`
 
 1. `monitor --follow` emits canonical `orca.monitor.v2` JSONL by merging:
-   - managed events from `status --follow` (passthrough, no schema drift)
+   - managed live-awareness events from `status --follow` (passthrough, no schema drift)
    - observed-target liveness transitions from registry + tmux polling
 2. observed transitions are edge-triggered (`session_up`/`session_down`) and deduplicated across unchanged snapshots.
 3. merged output remains append-only JSONL: newest events are appended at the bottom in the order monitor emits them, and prior lines are never rewritten.
@@ -527,6 +543,11 @@ Pane B (interactive target selection + jump):
 7. observed registry loading is strict on `list/add/remove/observe start`: malformed JSON or invalid persisted entry fields (`id`, `lifecycle`, `tmux_target`) are rejected with operational failure; no auto-repair/normalization is attempted.
 8. `monitor --follow` hard-fails with exit code `3` when `tmux` is unavailable.
 9. default follow mode is live-from-now (no startup replay for managed or observed paths); use `--replay-baseline` to restore startup replay.
+
+Intent alignment (see "CLI Decision Rationale (Prototype Phase)"):
+- `monitor --follow` is the unified live-awareness surface when both managed and observed targets matter
+- `observe start` is a lifecycle operation (create+register), not a monitoring surface
+- keep monitor/observe behavior minimal unless operators report concrete gaps
 
 Regression checks:
 

@@ -15,6 +15,17 @@ v0 must support:
 2. monitoring of manually managed persistent tmux targets,
 3. one-step creation + registration of observed tmux targets.
 
+### 1.1 Decision rationale (prototype phase)
+
+This spec applies Orca's prototype-phase CLI principles:
+
+1. Prototype-first break policy: compatibility is not required yet; breaking changes are acceptable when they simplify behavior or solve demonstrated operator pain.
+2. Follow is human-first live awareness: follow surfaces prioritize clear real-time transitions for operators while remaining script-readable.
+3. Status is snapshot-oriented: snapshot diagnostics stay on `status`; follow remains opt-in for continuous awareness.
+4. Complexity must be earned: new modes/flags/coupling require concrete user/operator evidence.
+
+This rationale is mirrored in `README.md` and `OPERATOR_GUIDE.md` to reduce future drift.
+
 ---
 
 ## 2) v0 boundaries
@@ -47,6 +58,8 @@ Required canonical event schema for follow streams:
 - `session_started` and `loop_stopped` are not emitted in v2
 - output transport is append-only JSONL; each emitted event is appended as a new line at stream bottom
 - ordering guarantee is emission order (line order on stdout); previously emitted lines are never rewritten
+
+Intent note: `status --follow` exists to provide managed live-awareness transitions; it is not a replacement for snapshot status surfaces (`status --quick|--full|--json`).
 
 Each emitted event MUST include:
 - `schema_version`
@@ -118,6 +131,8 @@ Behavior:
 - `--replay-baseline` restores startup replay semantics,
 - hard-fails if `tmux` is unavailable (no degraded mode in v0).
 
+Intent note: `monitor --follow` is the unified live-awareness surface when both managed and observed targets matter.
+
 Defaults:
 - `--poll-interval 5`
 - `--max-events 0` (unbounded)
@@ -162,6 +177,8 @@ Lists observed registry entries.
 ```
 
 Creates a detached tmux target and registers it.
+
+Intent note: `observe start` is a lifecycle operation (create + register), not a monitoring stream.
 
 **Collision policy (v0):** fail if target session already exists. No replace/attach/force modes.
 

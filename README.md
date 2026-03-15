@@ -111,9 +111,9 @@ Operating stance: autonomy with explicit protocol guidance (Option C; see `docs/
 - `targets [--json] [--session-id ID] [--session-prefix PREFIX]`
 - `jump <target>`
 - `monitor --follow [--poll-interval SECONDS] [--max-events N] [--replay-baseline] [--render MODE] [--session-id ID] [--session-prefix PREFIX]`
-- `monitor add --id AGENT_ID --lifecycle LIFECYCLE --tmux-target TARGET [--cwd PATH]`
-- `monitor remove --id AGENT_ID`
-- `monitor list [--json]`
+- `observe add --id AGENT_ID --lifecycle LIFECYCLE --tmux-target TARGET [--cwd PATH]`
+- `observe remove --id AGENT_ID`
+- `observe list [--json]`
 - `observe start --id AGENT_ID --lifecycle LIFECYCLE --tmux-target TARGET --cwd PATH -- <command...>`
 - `wait [--timeout SECONDS] [--poll-interval SECONDS] [--session-id ID] [--session-prefix PREFIX] [--all-history] [--json]`
 - `plan [--slots N] [--output PATH]`
@@ -537,8 +537,8 @@ Pane B (interactive target selection + jump):
 2. observed transitions are edge-triggered (`session_up`/`session_down`) and deduplicated across unchanged snapshots.
 3. merged output remains append-only JSONL: newest events are appended at the bottom in the order monitor emits them, and prior lines are never rewritten.
    - with `--render structured`, output becomes append-only human-readable lines in the same emission order (event semantics unchanged)
-4. `monitor add` registers existing tmux targets; `monitor remove` only updates registry state and never kills tmux sessions.
-5. `monitor list --json` returns the observed registry entries array.
+4. `observe add` registers existing tmux targets; `observe remove` only updates registry state and never kills tmux sessions.
+5. `observe list --json` returns the observed registry entries array.
 6. `observe start` creates detached tmux targets, registers them as observed, and rolls back tmux session creation if registry write fails.
 7. observed registry loading is strict on `list/add/remove/observe start`: malformed JSON or invalid persisted entry fields (`id`, `lifecycle`, `tmux_target`) are rejected with operational failure; no auto-repair/normalization is attempted.
 8. `monitor --follow` hard-fails with exit code `3` when `tmux` is unavailable.

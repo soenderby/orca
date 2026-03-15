@@ -192,8 +192,8 @@ Watch/poll mode override:
 ./orca.sh monitor --follow --session-id "<session-id>"                  # merged live-awareness stream for managed+observed targets
 ./orca.sh monitor --follow --replay-baseline --session-id "<session-id>"# include startup baseline replay
 ./orca.sh monitor --follow --render structured --session-id "<session-id>"# human-readable merged follow rendering
-./orca.sh monitor add --id observed-a --lifecycle persistent --tmux-target dev:main
-./orca.sh monitor list --json
+./orca.sh observe add --id observed-a --lifecycle persistent --tmux-target dev:main
+./orca.sh observe list --json
 ./orca.sh observe start --id observed-b --lifecycle ephemeral --tmux-target sandbox:main --cwd "$PWD" -- bash -lc "make test"
 bash tests/stress_monitor_registry_contention.sh                               # observed registry hardening stress target
 ./orca.sh wait --session-id "<session-id>" --timeout 900 --json         # block for completion
@@ -206,8 +206,8 @@ All status surfaces show scoped active run state (`state=running|idle`) and supp
 `orca targets` provides one normalized inventory for interactive switching across managed and observed targets (`id`, `mode`, `tmux_target`, `active`, `session_id`) and supports `--json`, `--session-id`, and `--session-prefix`.
 `orca jump <target>` resolves logical target ids (`managed:*`, `observed:*`) before explicit tmux fallback (`session` / `session:window`), then switches/attaches the client.
 `orca monitor --follow` emits the merged `orca.monitor.v2` live-awareness stream: managed events are passed through from `status --follow`, while observed events are generated from registry+tmux liveness transitions. The merged stream is append-only JSONL by default with newest events appended at the bottom in monitor emission order. Set `--render structured` for the same append-only ordering and event semantics with human-readable lines. In v0, missing `tmux` is a hard operational failure (exit code `3`). Default mode is live-from-now for both managed and observed paths; use `--replay-baseline` to restore startup replay semantics.
-`orca monitor add/remove/list` manage only observed registry state; `monitor remove` never kills tmux sessions. `orca observe start` is the lifecycle operation that creates detached tmux targets and registers them atomically, rolling back tmux session creation if registry write fails.
-Observed registry loading is strict for `monitor list/add/remove` and `observe start`: malformed JSON or invalid persisted `id`/`lifecycle`/`tmux_target` values are rejected as operational failures (no auto-repair).
+`orca observe add/remove/list` manage only observed registry state; `observe remove` never kills tmux sessions. `orca observe start` is the lifecycle operation that creates detached tmux targets and registers them atomically, rolling back tmux session creation if registry write fails.
+Observed registry loading is strict for `observe list/add/remove` and `observe start`: malformed JSON or invalid persisted `id`/`lifecycle`/`tmux_target` values are rejected as operational failures (no auto-repair).
 `tests/stress_monitor_registry_contention.sh` is the high-contention monitor registry hardening target (multi-writer + multi-reader churn with bounded timeouts).
 `orca wait` is the non-interactive blocking primitive for automation. It supports the same session scoping (`--session-id` / `--session-prefix`) and returns deterministic exit codes (`0` success, `2` timeout, `3` scoped failure, `4` invalid usage/config). In unscoped mode it waits only on sessions active at invocation (safe default for unattended `start -> wait` flows); use `--all-history` to include historical session artifacts. When no scoped sessions exist at invocation time, it returns immediate success with reason `no_scoped_sessions`.
 

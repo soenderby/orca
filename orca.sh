@@ -19,9 +19,9 @@ Commands:
   targets [--json] [--session-id ID] [--session-prefix PREFIX]
   jump <target>
   monitor --follow [--poll-interval SECONDS] [--max-events N] [--replay-baseline] [--render MODE] [--session-id ID] [--session-prefix PREFIX]
-  monitor add --id AGENT_ID --lifecycle LIFECYCLE --tmux-target TARGET [--cwd PATH]
-  monitor remove --id AGENT_ID
-  monitor list [--json]
+  observe add --id AGENT_ID --lifecycle LIFECYCLE --tmux-target TARGET [--cwd PATH]
+  observe remove --id AGENT_ID
+  observe list [--json]
   observe start --id AGENT_ID --lifecycle LIFECYCLE --tmux-target TARGET --cwd PATH -- <command...>
   wait [--timeout SECONDS] [--session-id ID] [--session-prefix PREFIX] [--json]
   plan [--slots N] [--output PATH]

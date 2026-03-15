@@ -4,12 +4,12 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  start.sh [count] [--runs N | --continuous] [--drain | --watch] [--no-work-retries N] [--reasoning-level LEVEL]
+  start.sh [count] [--runs N | --continuous(self-select only)] [--drain | --watch] [--no-work-retries N] [--reasoning-level LEVEL]
 
 Options:
   count         Number of worker sessions/worktrees to launch (default: 2)
   --runs N      Maximum completed issue runs per agent loop (upper bound; may stop earlier)
-  --continuous  Keep each loop unbounded (agent can request stop) (default)
+  --continuous  Keep each loop unbounded (agent can request stop) (self-select mode only)
   --drain       Stop loop on sustained queue exhaustion (`no_work`) (default)
   --watch       Keep loop running on `no_work` (poll/watch mode)
   --no-work-retries N
@@ -413,6 +413,12 @@ fi
 
 if [[ "${ORCA_ASSIGNMENT_MODE}" != "assigned" && "${ORCA_ASSIGNMENT_MODE}" != "self-select" ]]; then
   echo "[start] ORCA_ASSIGNMENT_MODE must be 'assigned' or 'self-select': ${ORCA_ASSIGNMENT_MODE}" >&2
+  exit 1
+fi
+
+if [[ "${ORCA_ASSIGNMENT_MODE}" == "assigned" && "${MAX_RUNS}" -eq 0 ]]; then
+  echo "[start] --continuous is not supported when ORCA_ASSIGNMENT_MODE=assigned" >&2
+  echo "[start] use --runs N (recommended: --runs 1) or set ORCA_ASSIGNMENT_MODE=self-select" >&2
   exit 1
 fi
 

@@ -144,7 +144,7 @@ Tracker lifecycle:
 ### 2) Start Loop Sessions
 
 ```bash
-./orca.sh start 2 --continuous
+./orca.sh start 2 --runs 1
 ```
 
 `orca start` validates the local `br` workspace (`.beads/`) and fails fast when the queue workspace is missing/unhealthy or a non-running agent worktree is dirty.
@@ -154,6 +154,7 @@ Default mode is `ORCA_DEP_SANITY_MODE=enforce`: launch is blocked when hazards a
 Launch logs include planned per-session issue IDs, held/skipped reason codes, and per-issue planner decisions, so reduced launch counts are explainable from a single run log.
 Default no-work behavior is drain mode: after a small retry budget for transient races, loops stop on sustained `no_work`.
 Use `--watch` to keep polling on `no_work` instead.
+`--continuous` is rejected when `ORCA_ASSIGNMENT_MODE=assigned`; use `--runs N` (recommended: `--runs 1`) or switch to `ORCA_ASSIGNMENT_MODE=self-select`.
 
 Manual sanity run example:
 
@@ -172,7 +173,7 @@ Bounded mode:
 Watch/poll mode override:
 
 ```bash
-./orca.sh start 2 --continuous --watch
+ORCA_ASSIGNMENT_MODE=self-select ./orca.sh start 2 --continuous --watch
 ```
 
 ### 3) Monitor
@@ -269,7 +270,7 @@ Orca injects `ORCA_WITH_LOCK_PATH`, `ORCA_PRIMARY_REPO`, `ORCA_LOCK_SCOPE`, `ORC
 ```bash
 git pull --rebase
 "${ORCA_QUEUE_READ_MAIN_PATH}" --fallback error -- br ready --json >/dev/null
-./orca.sh start 2 --continuous
+./orca.sh start 2 --runs 1
 ./orca.sh status
 ```
 
@@ -302,14 +303,14 @@ tmux attach -t orca-agent-1
 Scale up:
 
 ```bash
-./orca.sh start 3 --continuous
+./orca.sh start 3 --runs 1
 ```
 
 Scale down cleanly:
 
 ```bash
 ./orca.sh stop
-./orca.sh start 2 --continuous
+./orca.sh start 2 --runs 1
 ```
 
 ## Failure Handling

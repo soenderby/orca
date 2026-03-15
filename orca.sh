@@ -12,7 +12,7 @@ Usage:
 Commands:
   bootstrap [--yes] [--dry-run]
   doctor [--json]
-  start [count] [--runs N|--continuous] [--drain|--watch] [--no-work-retries N] [--reasoning-level LEVEL]
+  start [count] [--runs N|--continuous(self-select only)] [--drain|--watch] [--no-work-retries N] [--reasoning-level LEVEL]
   stop
   status [--quick|--full] [--json] [--session-id ID] [--session-prefix PREFIX]
   follow [--poll-interval SECONDS] [--max-events N]

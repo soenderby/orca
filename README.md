@@ -104,7 +104,7 @@ Operating stance: autonomy with explicit protocol guidance (Option C; see `docs/
 ## Commands
 
 - `bootstrap [--yes] [--dry-run]`
-- `start [count] [--runs N|--continuous] [--drain|--watch] [--no-work-retries N] [--reasoning-level LEVEL]`
+- `start [count] [--runs N|--continuous(self-select only)] [--drain|--watch] [--no-work-retries N] [--reasoning-level LEVEL]`
 - `doctor [--json]`
 - `stop`
 - `status [--quick|--full] [--json] [--session-id ID] [--session-prefix PREFIX]`
@@ -385,6 +385,7 @@ Startup checks:
 17. `ORCA_PRIMARY_REPO` points to a valid git worktree
 18. `ORCA_WITH_LOCK_PATH`, `ORCA_QUEUE_READ_MAIN_PATH`, `ORCA_QUEUE_WRITE_MAIN_PATH`, and `ORCA_MERGE_MAIN_PATH` are executable
 19. `ORCA_DEP_SANITY_MODE` is `enforce|warn|off` and, when enabled, `ORCA_DEP_SANITY_CHECK_PATH` is executable
+20. `MAX_RUNS=0` (`--continuous`) is rejected when `ORCA_ASSIGNMENT_MODE=assigned`
 
 Behavior:
 
@@ -399,9 +400,10 @@ Behavior:
 9. runs `dep-sanity.sh` before launch planning and writes a dependency sanity artifact under `agent-logs/plans/YYYY/MM/DD/`
 10. `ORCA_DEP_SANITY_MODE=enforce` (default) blocks launch when hazards are detected; `warn` logs hazards and proceeds; `off` skips the check
 11. explicit override `ORCA_ASSIGNMENT_MODE=self-select` restores unassigned self-selection behavior for recovery/debugging
-12. in `self-select`, `ORCA_FORCE_COUNT=1` bypasses launch capping and launches all requested non-running sessions
-13. logs launch planning and summary counts (`requested`, `running`, `ready`, `launchable/launched`, `force_count`, `assignment_mode`) plus assignment-plan details (per-slot issue IDs, held/skipped reason codes, and per-issue planner decisions)
-14. refuses to launch sessions when a non-running agent worktree is dirty, with per-path status output
+12. in `assigned` mode, `--continuous` (`MAX_RUNS=0`) is rejected; use bounded `--runs N` (recommended: `--runs 1`)
+13. in `self-select`, `ORCA_FORCE_COUNT=1` bypasses launch capping and launches all requested non-running sessions
+14. logs launch planning and summary counts (`requested`, `running`, `ready`, `launchable/launched`, `force_count`, `assignment_mode`) plus assignment-plan details (per-slot issue IDs, held/skipped reason codes, and per-issue planner decisions)
+15. refuses to launch sessions when a non-running agent worktree is dirty, with per-path status output
 
 ### `agent-loop.sh`
 

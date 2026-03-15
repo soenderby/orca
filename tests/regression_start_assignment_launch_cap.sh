@@ -268,4 +268,31 @@ if [[ "${launched_count}" -ne 1 ]]; then
   exit 1
 fi
 
+set +e
+continuous_output="$(
+  ORCA_TEST_ROOT="${TEST_ROOT}" \
+  ORCA_TEST_TMUX_FILE="${STATE_TMUX_FILE}" \
+  REAL_GIT="${REAL_GIT}" \
+  PATH="${TEST_BIN}:${PATH}" \
+  SESSION_PREFIX="${SESSION_PREFIX}" \
+  AGENT_COMMAND="true" \
+  ORCA_ASSIGNMENT_MODE="assigned" \
+  ORCA_PRIMARY_REPO="${TEST_ROOT}" \
+  ORCA_WITH_LOCK_PATH="${TEST_ROOT}/with-lock.sh" \
+  ORCA_QUEUE_READ_MAIN_PATH="${TEST_ROOT}/queue-read-main.sh" \
+  ORCA_QUEUE_WRITE_MAIN_PATH="${TEST_ROOT}/queue-write-main.sh" \
+  ORCA_MERGE_MAIN_PATH="${TEST_ROOT}/merge-main.sh" \
+  ORCA_BR_GUARD_PATH="${TEST_ROOT}/br-guard.sh" \
+  ORCA_DEP_SANITY_CHECK_PATH="${HARNESS_DIR}/dep-sanity.sh" \
+  bash "${HARNESS_DIR}/start.sh" 1 --continuous 2>&1
+)"
+continuous_rc=$?
+set -e
+
+if [[ "${continuous_rc}" -eq 0 ]]; then
+  echo "expected assigned mode + --continuous to be rejected" >&2
+  exit 1
+fi
+printf '%s\n' "${continuous_output}" | grep -F -- "--continuous is not supported when ORCA_ASSIGNMENT_MODE=assigned" >/dev/null
+
 echo "start assignment launch-cap regression passed"

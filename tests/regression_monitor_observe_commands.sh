@@ -149,6 +149,24 @@ if [[ "${bad_id_rc}" -ne 4 ]]; then
   exit 1
 fi
 
+set +e
+run_orca monitor add --id observed-invalid-target --lifecycle persistent --tmux-target "bad/target" >/dev/null 2>&1
+invalid_target_rc=$?
+set -e
+if [[ "${invalid_target_rc}" -ne 4 ]]; then
+  echo "expected invalid tmux target syntax to return exit 4, got ${invalid_target_rc}" >&2
+  exit 1
+fi
+
+set +e
+run_orca monitor add --id observed-missing-target --lifecycle persistent --tmux-target existing:missing >/dev/null 2>&1
+missing_target_rc=$?
+set -e
+if [[ "${missing_target_rc}" -ne 3 ]]; then
+  echo "expected non-existing tmux target to return exit 3, got ${missing_target_rc}" >&2
+  exit 1
+fi
+
 list_json="$(run_orca monitor list --json)"
 if [[ "$(jq -r 'length' <<<"${list_json}")" -ne 1 ]]; then
   echo "expected one registry entry after monitor add" >&2
@@ -187,6 +205,19 @@ if [[ "$(jq -r '.source' <<<"${observe_output}")" != "observe_start" ]]; then
 fi
 if ! grep -Fx "new-session -d -s fresh -n main -c ${ROOT} bash -lc echo hi" "${TMUX_LOG}" >/dev/null; then
   echo "expected tmux new-session invocation for fresh:main" >&2
+  exit 1
+fi
+
+set +e
+run_orca observe start --id observed-existing-session --lifecycle persistent --tmux-target existing:new --cwd "${ROOT}" -- sleep 1 >/dev/null 2>&1
+existing_session_rc=$?
+set -e
+if [[ "${existing_session_rc}" -ne 3 ]]; then
+  echo "expected observe start to fail when target session already exists with exit 3, got ${existing_session_rc}" >&2
+  exit 1
+fi
+if grep -Fx "new-session -d -s existing -n new -c ${ROOT} sleep 1" "${TMUX_LOG}" >/dev/null 2>&1; then
+  echo "observe start must not create tmux session when target session already exists" >&2
   exit 1
 fi
 

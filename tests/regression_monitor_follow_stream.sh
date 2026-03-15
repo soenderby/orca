@@ -264,8 +264,8 @@ set +e
 )
 monitor_follow_rc=$?
 set -e
-if [[ "${monitor_follow_rc}" -ne 4 ]]; then
-  echo "expected monitor --follow to be rejected with exit 4, got ${monitor_follow_rc}" >&2
+if [[ "${monitor_follow_rc}" -ne 1 ]]; then
+  echo "expected monitor --follow to be unknown command with exit 1, got ${monitor_follow_rc}" >&2
   exit 1
 fi
 

@@ -16,7 +16,7 @@ Current documentation:
 6. `AGENT_PROMPT.md`: active worker prompt contract
 7. `OPERATOR_GUIDE.md`: operator playbook
 8. `SESSION_PRIMER.md`: single-session interaction contract and quick-prime text
-9. `docs/async-monitor-v0-spec.md`: authoritative v0 CLI and data schema spec for monitor/observe workflows
+9. `docs/async-monitor-v0-spec.md`: authoritative v0 CLI and data schema spec for follow/observe workflows
 10. `docs/async-monitor-v0-acceptance-matrix.md`: v0 acceptance criterion to regression coverage matrix + sign-off bundle
 11. `docs/async-agent-supervision-plan.md`: goals/boundary/future notes (non-spec context)
 12. `docs/user-stories.md`: workflow narratives and friction input used to guide design
@@ -108,10 +108,9 @@ Operating stance: autonomy with explicit protocol guidance (Option C; see `docs/
 - `doctor [--json]`
 - `stop`
 - `status [--quick|--full] [--json] [--session-id ID] [--session-prefix PREFIX]`
-- `status --follow [--poll-interval SECONDS] [--max-events N] [--replay-baseline] [--render MODE] [--session-id ID] [--session-prefix PREFIX]`
+- `follow [--poll-interval SECONDS] [--max-events N]`
 - `targets [--json] [--session-id ID] [--session-prefix PREFIX]`
 - `jump <target>`
-- `monitor --follow [--poll-interval SECONDS] [--max-events N] [--replay-baseline] [--render MODE] [--session-id ID] [--session-prefix PREFIX]`
 - `observe add --id AGENT_ID --lifecycle LIFECYCLE --tmux-target TARGET [--cwd PATH]`
 - `observe remove --id AGENT_ID`
 - `observe list [--json]`
@@ -134,6 +133,16 @@ Helper scripts (direct invocation):
 - `./merge-main.sh [--source BRANCH] [options]`
 - `./dep-sanity.sh [--issues-jsonl PATH] [--output PATH] [--strict]`
 - `./gc-run-branches.sh [--apply] [--base REF] [--repo PATH]`
+
+## CLI Migration (Prototype)
+
+| Old surface | New surface |
+| --- | --- |
+| `orca status --follow ...` | `orca follow [--poll-interval SECONDS] [--max-events N]` |
+| `orca monitor --follow ...` | `orca follow [--poll-interval SECONDS] [--max-events N]` |
+| `orca monitor add ...` | `orca observe add ...` |
+| `orca monitor remove ...` | `orca observe remove ...` |
+| `orca monitor list ...` | `orca observe list ...` |
 
 ## Improvement Policy
 
@@ -427,41 +436,19 @@ Signal handling:
 1. defaults to `--quick` for a fast active-operations view (health summary, active sessions, current claims, latest run activity, high-signal alerts)
 2. supports `--full` for complete diagnostics (legacy output depth)
 3. supports `--json` machine-readable output with explicit top-level schema version (`schema_version: "orca.status.v1"`)
-4. supports `--follow` for live operator awareness; default render is machine-readable JSONL lifecycle events (`schema_version: "orca.monitor.v2"`, event types: `session_up`, `session_down`, `run_started`, `run_completed`, `run_failed`) with optional structured human rendering
-5. supports session scoping with `--session-id` (exact match) and `--session-prefix` (prefix match) across quick/full/json/follow surfaces
-6. reports active run state per scoped session (`state=running|idle`) from live run artifacts so operators can distinguish in-progress execution from idle/stalled state
-7. in full mode, prints queue backend diagnostics for `br` (version, workspace presence, doctor result, sync status)
-8. in full mode, prints per-agent latest activity from `metrics.jsonl` (session, result, issue, age, duration, tokens, loop action)
-9. in full mode, prints tmux sessions and git worktrees
-10. in full mode, prints queue snapshots (`in_progress`, `closed`)
-11. in full mode, prints latest metrics rows with session, agent, and relative age
-12. full-mode metrics summary is cached by `metrics.jsonl` fingerprint (`size:mtime:v2`) under `agent-logs/cache`; unchanged files reuse cached counters/agent latest rows
-13. cache limitation: the first `--full` call after any `metrics.jsonl` change still performs a full parse to refresh cache
-
-Managed follow v2 contract (frozen target for monitor layering; implemented in `orca-18w.2`):
-
-- schema version: `orca.monitor.v2`
-- event types: `session_up`, `session_down`, `run_started`, `run_completed`, `run_failed`
-- exact `event_id` formats:
-  - `session_up:<session_id>`
-  - `session_down:<session_id>`
-  - `run_started:<session_id>:<run_id>`
-  - `run_completed:<session_id>:<run_id>`
-  - `run_failed:<session_id>:<run_id>`
-- managed `session_down` semantics: emit only on tmux liveness transition `active -> inactive`; never infer from graceful loop stop or run completion
-- transition-only behavior: unchanged snapshots must not re-emit the same lifecycle transition
-- stream ordering: follow output is append-only JSONL; events are emitted as new lines at the bottom in emission order; previously emitted lines are never rewritten
-- default startup behavior: `--follow` starts from "now" (captures baseline snapshot without replaying historical startup transitions)
-- opt-in replay behavior: `--replay-baseline` restores startup baseline replay transitions for catch-up tooling
-- render mode: `--render jsonl` (default) preserves machine-readable JSONL; `--render structured` emits a human-readable append-only line per event
-- structured format contract (stable field order): `<observed_at> mode=<mode> event_type=<event_type> session_id=<session_id> [run_id=<run_id>] target=<tmux_target>`
-- structured required fields: `observed_at`, `mode`, `event_type`, `session_id`, `target`; `run_id` appears only for run events
-- v2 excludes legacy names `session_started` and `loop_stopped`
+4. supports session scoping with `--session-id` (exact match) and `--session-prefix` (prefix match) across quick/full/json surfaces
+5. reports active run state per scoped session (`state=running|idle`) from live run artifacts so operators can distinguish in-progress execution from idle/stalled state
+6. in full mode, prints queue backend diagnostics for `br` (version, workspace presence, doctor result, sync status)
+7. in full mode, prints per-agent latest activity from `metrics.jsonl` (session, result, issue, age, duration, tokens, loop action)
+8. in full mode, prints tmux sessions and git worktrees
+9. in full mode, prints queue snapshots (`in_progress`, `closed`)
+10. in full mode, prints latest metrics rows with session, agent, and relative age
+11. full-mode metrics summary is cached by `metrics.jsonl` fingerprint (`size:mtime:v2`) under `agent-logs/cache`; unchanged files reuse cached counters/agent latest rows
+12. cache limitation: the first `--full` call after any `metrics.jsonl` change still performs a full parse to refresh cache
 
 Intent alignment (see "CLI Decision Rationale (Prototype Phase)"):
 - treat `status` quick/full/json as snapshot surfaces
-- treat `status --follow` as the managed live-awareness stream
-- keep managed event payloads simple and additive unless operators need richer semantics
+- use `follow` for managed+observed live-awareness transitions
 
 Tuning knobs:
 
@@ -476,7 +463,6 @@ Performance regression check:
 
 - `bash tests/status_metrics_perf_check.sh`
 - `bash tests/status_session_scope_and_progress.sh`
-- `bash tests/regression_status_follow_monitor.sh`
 - `bash tests/regression_follow_render_structured.sh`
 
 Automation examples:
@@ -484,13 +470,6 @@ Automation examples:
 ```bash
 # Parse health + alerts in machine-readable status output
 ./orca.sh status --quick --json | jq '{health: .health.status, alerts: .health.alerts}'
-
-# Follow lifecycle transitions for one session and react to failures
-./orca.sh status --follow --session-id "<session-id>" \
-  | jq -r 'select(.event_type == "run_failed") | "FAILED " + .session_id + " run=" + (.run.run_id // "none")'
-
-# Human-readable stream (same ordering/semantics, rendering-only)
-./orca.sh status --follow --render structured --session-id "<session-id>"
 ```
 
 ### `targets.sh`
@@ -520,7 +499,7 @@ Minimal two-pane operator workflow:
 Pane A (foreground live-awareness stream):
 
 ```bash
-./orca.sh monitor --follow --session-prefix "orca-agent-"
+./orca.sh follow
 ```
 
 Pane B (interactive target selection + jump):
@@ -531,25 +510,21 @@ Pane B (interactive target selection + jump):
 ./orca.sh jump "observed:observed-a"
 ```
 
-### `monitor.sh` + `observe.sh`
+### `follow.sh` + `observe.sh`
 
-1. `monitor --follow` emits canonical `orca.monitor.v2` JSONL by merging:
-   - managed live-awareness events from `status --follow` (passthrough, no schema drift)
-   - observed-target liveness transitions from registry + tmux polling
+1. `follow` is the top-level live-awareness stream and emits merged managed+observed events as structured lines.
 2. observed transitions are edge-triggered (`session_up`/`session_down`) and deduplicated across unchanged snapshots.
-3. merged output remains append-only JSONL: newest events are appended at the bottom in the order monitor emits them, and prior lines are never rewritten.
-   - with `--render structured`, output becomes append-only human-readable lines in the same emission order (event semantics unchanged)
+3. `follow` is live-from-now only; removed flags (`--replay-baseline`, `--session-id`, `--session-prefix`, `--render`) are rejected.
 4. `observe add` registers existing tmux targets; `observe remove` only updates registry state and never kills tmux sessions.
 5. `observe list --json` returns the observed registry entries array.
 6. `observe start` creates detached tmux targets, registers them as observed, and rolls back tmux session creation if registry write fails.
 7. observed registry loading is strict on `list/add/remove/observe start`: malformed JSON or invalid persisted entry fields (`id`, `lifecycle`, `tmux_target`) are rejected with operational failure; no auto-repair/normalization is attempted.
-8. `monitor --follow` hard-fails with exit code `3` when `tmux` is unavailable.
-9. default follow mode is live-from-now (no startup replay for managed or observed paths); use `--replay-baseline` to restore startup replay.
+8. `follow` hard-fails with exit code `3` when `tmux` is unavailable.
 
 Intent alignment (see "CLI Decision Rationale (Prototype Phase)"):
-- `monitor --follow` is the unified live-awareness surface when both managed and observed targets matter
+- `follow` is the unified live-awareness surface when both managed and observed targets matter
 - `observe start` is a lifecycle operation (create+register), not a monitoring surface
-- keep monitor/observe behavior minimal unless operators report concrete gaps
+- keep follow/observe behavior minimal unless operators report concrete gaps
 
 Regression checks:
 
@@ -558,14 +533,6 @@ Regression checks:
 - `bash tests/regression_monitor_follow_stream.sh`
 - `bash tests/regression_follow_render_structured.sh`
 - `bash tests/stress_monitor_registry_contention.sh` (longer-running registry hardening stress test)
-
-JSONL examples:
-
-```json
-{"schema_version":"orca.monitor.v2","event_id":"run_started:managed-1:run-0001","event_type":"run_started","observed_at":"2026-03-14T12:00:00Z","session_id":"managed-1","mode":"managed","tmux_target":"orca-agent-1","run":{"run_id":"run-0001","state":"running","result":null,"issue_status":null,"summary_path":null}}
-{"schema_version":"orca.monitor.v2","event_id":"session_up:observed-1","event_type":"session_up","observed_at":"2026-03-14T12:00:02Z","session_id":"observed-1","mode":"observed","lifecycle":"persistent","tmux_target":"obs","session":{"session_id":"observed-1","tmux_target":"obs","lifecycle":"persistent","active":true}}
-{"schema_version":"orca.monitor.v2","event_id":"session_down:observed-1","event_type":"session_down","observed_at":"2026-03-14T12:00:10Z","session_id":"observed-1","mode":"observed","lifecycle":"persistent","tmux_target":"obs","session":{"session_id":"observed-1","tmux_target":"obs","lifecycle":"persistent","active":false}}
-```
 
 ### `wait.sh`
 

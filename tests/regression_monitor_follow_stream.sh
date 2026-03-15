@@ -78,9 +78,13 @@ cat > "${WORKTREE_DIR}/status.sh" <<'STATUS_STUB'
 #!/usr/bin/env bash
 set -euo pipefail
 
+has_replay_baseline=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --follow)
+      ;;
+    --replay-baseline)
+      has_replay_baseline=1
       ;;
     --poll-interval|--max-events|--session-id|--session-prefix)
       shift
@@ -92,6 +96,11 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
+
+if [[ "${ORCA_TEST_REQUIRE_REPLAY_BASELINE:-0}" == "1" && "${has_replay_baseline}" -ne 1 ]]; then
+  echo "status stub: expected --replay-baseline" >&2
+  exit 2
+fi
 
 if [[ "${ORCA_TEST_STATUS_EMIT:-0}" == "1" ]]; then
   stream_file="${ORCA_TEST_STATUS_STREAM_FILE:-}"
@@ -203,7 +212,7 @@ echo "ok" > "${TMUX_HEALTH_MODE_FILE}"
     ORCA_TEST_TMUX_HEALTH_MODE_FILE="${TMUX_HEALTH_MODE_FILE}" \
     ORCA_TEST_STATUS_EMIT=1 \
     ORCA_TEST_STATUS_STREAM_FILE="${MANAGED_STREAM_FILE}" \
-    bash ./orca.sh monitor --follow --poll-interval 1 --max-events 3 > "${OUT_FILE}"
+    bash ./orca.sh monitor --follow --poll-interval 1 --max-events 2 > "${OUT_FILE}"
 ) &
 follow_pid=$!
 
@@ -221,13 +230,13 @@ if ! grep -Fx -- "${managed_event}" "${OUT_FILE}" >/dev/null; then
   exit 1
 fi
 
-if [[ "$(wc -l < "${OUT_FILE}" | tr -d '[:space:]')" -ne 3 ]]; then
-  echo "expected exactly three merged follow events" >&2
+if [[ "$(wc -l < "${OUT_FILE}" | tr -d '[:space:]')" -ne 2 ]]; then
+  echo "expected exactly two merged follow events" >&2
   cat "${OUT_FILE}" >&2
   exit 1
 fi
 
-expected_merged_sequence="observed:session_up:observed-1,managed:run_started:managed-1,observed:session_down:observed-1"
+expected_merged_sequence="managed:run_started:managed-1,observed:session_down:observed-1"
 actual_merged_sequence="$(jq -r '[.mode, .event_type, .session_id] | join(":")' "${OUT_FILE}" | paste -sd ',' -)"
 if [[ "${actual_merged_sequence}" != "${expected_merged_sequence}" ]]; then
   echo "unexpected merged follow ordering; expected ${expected_merged_sequence}, got ${actual_merged_sequence}" >&2
@@ -236,8 +245,8 @@ if [[ "${actual_merged_sequence}" != "${expected_merged_sequence}" ]]; then
 fi
 
 managed_line_number="$(grep -n -F -- "${managed_event}" "${OUT_FILE}" | cut -d: -f1 | head -n 1)"
-if [[ "${managed_line_number}" != "2" ]]; then
-  echo "expected managed passthrough event to remain on line 2 in merged output" >&2
+if [[ "${managed_line_number}" != "1" ]]; then
+  echo "expected managed passthrough event to remain on line 1 in merged output" >&2
   cat "${OUT_FILE}" >&2
   exit 1
 fi
@@ -248,11 +257,8 @@ if [[ "$(jq -r 'select(.mode == "managed" and .event_id == "run_started:managed-
   exit 1
 fi
 
-if ! jq -e '
-  select(.mode == "observed" and .event_type == "session_up" and .session_id == "observed-1")
-  | .event_id == "session_up:observed-1"
-' "${OUT_FILE}" >/dev/null; then
-  echo "missing observed session_up transition event" >&2
+if jq -e 'select(.mode == "observed" and .event_type == "session_up" and .session_id == "observed-1")' "${OUT_FILE}" >/dev/null; then
+  echo "monitor default follow unexpectedly replayed observed startup session_up" >&2
   cat "${OUT_FILE}" >&2
   exit 1
 fi
@@ -266,14 +272,14 @@ if ! jq -e '
   exit 1
 fi
 
-if [[ "$(jq -r 'select(.mode == "observed" and .event_type == "session_up" and .session_id == "observed-1") | .event_id' "${OUT_FILE}" | wc -l | tr -d '[:space:]')" -ne 1 ]]; then
-  echo "expected exactly one observed session_up event for observed-1" >&2
+if [[ "$(jq -r 'select(.mode == "observed" and .event_type == "session_down" and .session_id == "observed-1") | .event_id' "${OUT_FILE}" | wc -l | tr -d '[:space:]')" -ne 1 ]]; then
+  echo "expected exactly one observed session_down event for observed-1" >&2
   cat "${OUT_FILE}" >&2
   exit 1
 fi
 
-if [[ "$(jq -r 'select(.mode == "observed" and .event_type == "session_down" and .session_id == "observed-1") | .event_id' "${OUT_FILE}" | wc -l | tr -d '[:space:]')" -ne 1 ]]; then
-  echo "expected exactly one observed session_down event for observed-1" >&2
+if [[ "$(jq -r 'select(.mode == "observed" and .event_type == "session_up" and .session_id == "observed-1") | .event_id' "${OUT_FILE}" | wc -l | tr -d '[:space:]')" -ne 0 ]]; then
+  echo "expected zero observed session_up events for observed-1 in default mode" >&2
   cat "${OUT_FILE}" >&2
   exit 1
 fi
@@ -290,7 +296,8 @@ printf '%s\n' "obs" "other" > "${TMUX_SESSIONS_FILE}"
     ORCA_TEST_TMUX_SESSIONS="${TMUX_SESSIONS_FILE}" \
     ORCA_TEST_TMUX_HEALTH_MODE_FILE="${TMUX_HEALTH_MODE_FILE}" \
     ORCA_TEST_STATUS_EMIT=0 \
-    bash ./orca.sh monitor --follow --poll-interval 1 --max-events 1 --session-id observed-1 > "${FILTER_OUT_FILE}"
+    ORCA_TEST_REQUIRE_REPLAY_BASELINE=1 \
+    bash ./orca.sh monitor --follow --replay-baseline --poll-interval 1 --max-events 1 --session-id observed-1 > "${FILTER_OUT_FILE}"
 ) &
 filter_pid=$!
 

@@ -35,7 +35,7 @@ Default command hooks:
   open   : br list --status open --json 2>/dev/null | jq "length"
   ready  : br ready --json 2>/dev/null | jq "length"
   active : ./orca.sh status --quick --json 2>/dev/null | jq -r ".signals.sessions_total // 0"
-  launch : ./orca.sh start "${DISPATCH_SLOTS}" --continuous
+  launch : ./orca.sh start "${DISPATCH_SLOTS}" --runs 1
 USAGE
 }
 
@@ -114,7 +114,7 @@ DRY_RUN=0
 OPEN_COUNT_CMD='br list --status open --json 2>/dev/null | jq "length"'
 READY_COUNT_CMD='br ready --json 2>/dev/null | jq "length"'
 ACTIVE_COUNT_CMD='./orca.sh status --quick --json 2>/dev/null | jq -r ".signals.sessions_total // 0"'
-LAUNCH_CMD='./orca.sh start "${DISPATCH_SLOTS}" --continuous'
+LAUNCH_CMD='./orca.sh start "${DISPATCH_SLOTS}" --runs 1'
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

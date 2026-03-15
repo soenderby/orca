@@ -29,7 +29,7 @@ On each cycle, the loop runs these command hooks inside the repo:
 - active session count:
   - `./orca.sh status --quick --json 2>/dev/null | jq -r ".signals.sessions_total // 0"`
 - launch command (when active=0 and ready>0):
-  - `./orca.sh start "${DISPATCH_SLOTS}" --continuous`
+  - `./orca.sh start "${DISPATCH_SLOTS}" --runs 1`
 
 Where:
 - `DISPATCH_SLOTS = min(ready_count, --max-slots)`
@@ -101,5 +101,6 @@ Requirements for hooks:
 
 - This utility does not replace `orca follow`/`orca observe`; use those for live awareness and observed-target lifecycle.
 - Keep `--max-slots` aligned with available worktrees and desired concurrency.
+- Default launch behavior is bounded (`--runs 1`) to avoid sticky-assignment rerun loops in assigned mode.
 - If your queue contains intentionally open tracker issues, consider whether exit-on-open-zero behavior matches your workflow.
 - Launch failures are logged and retried on the next cycle.

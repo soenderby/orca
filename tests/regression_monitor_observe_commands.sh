@@ -134,14 +134,25 @@ run_orca() {
   )
 }
 
-add_output="$(run_orca monitor add --id observed-a --lifecycle persistent --tmux-target existing:ops --cwd "${ROOT}")"
+for removed_subcommand in add remove list; do
+  set +e
+  run_orca monitor "${removed_subcommand}" >/dev/null 2>&1
+  removed_rc=$?
+  set -e
+  if [[ "${removed_rc}" -ne 4 ]]; then
+    echo "expected monitor ${removed_subcommand} to be removed with exit 4, got ${removed_rc}" >&2
+    exit 1
+  fi
+done
+
+add_output="$(run_orca observe add --id observed-a --lifecycle persistent --tmux-target existing:ops --cwd "${ROOT}")"
 if [[ "$(jq -r '.id' <<<"${add_output}")" != "observed-a" ]]; then
-  echo "expected monitor add to register observed-a" >&2
+  echo "expected observe add to register observed-a" >&2
   exit 1
 fi
 
 set +e
-run_orca monitor add --id "bad/id" --lifecycle persistent --tmux-target existing:ops >/dev/null 2>&1
+run_orca observe add --id "bad/id" --lifecycle persistent --tmux-target existing:ops >/dev/null 2>&1
 bad_id_rc=$?
 set -e
 if [[ "${bad_id_rc}" -ne 4 ]]; then
@@ -150,7 +161,7 @@ if [[ "${bad_id_rc}" -ne 4 ]]; then
 fi
 
 set +e
-run_orca monitor add --id observed-invalid-target --lifecycle persistent --tmux-target "bad/target" >/dev/null 2>&1
+run_orca observe add --id observed-invalid-target --lifecycle persistent --tmux-target "bad/target" >/dev/null 2>&1
 invalid_target_rc=$?
 set -e
 if [[ "${invalid_target_rc}" -ne 4 ]]; then
@@ -159,7 +170,7 @@ if [[ "${invalid_target_rc}" -ne 4 ]]; then
 fi
 
 set +e
-run_orca monitor add --id observed-missing-target --lifecycle persistent --tmux-target existing:missing >/dev/null 2>&1
+run_orca observe add --id observed-missing-target --lifecycle persistent --tmux-target existing:missing >/dev/null 2>&1
 missing_target_rc=$?
 set -e
 if [[ "${missing_target_rc}" -ne 3 ]]; then
@@ -167,14 +178,14 @@ if [[ "${missing_target_rc}" -ne 3 ]]; then
   exit 1
 fi
 
-list_json="$(run_orca monitor list --json)"
+list_json="$(run_orca observe list --json)"
 if [[ "$(jq -r 'length' <<<"${list_json}")" -ne 1 ]]; then
-  echo "expected one registry entry after monitor add" >&2
+  echo "expected one registry entry after observe add" >&2
   exit 1
 fi
 
-run_orca monitor remove --id observed-a >/dev/null
-if jq -e '.[] | select(.id == "observed-a")' <<<"$(run_orca monitor list --json)" >/dev/null; then
+run_orca observe remove --id observed-a >/dev/null
+if jq -e '.[] | select(.id == "observed-a")' <<<"$(run_orca observe list --json)" >/dev/null; then
   echo "expected observed-a to be removed from registry" >&2
   exit 1
 fi
@@ -221,7 +232,7 @@ if grep -Fx "new-session -d -s existing -n new -c ${ROOT} sleep 1" "${TMUX_LOG}"
   exit 1
 fi
 
-run_orca monitor add --id duplicate-id --lifecycle persistent --tmux-target existing:ops >/dev/null
+run_orca observe add --id duplicate-id --lifecycle persistent --tmux-target existing:ops >/dev/null
 set +e
 run_orca observe start --id duplicate-id --lifecycle persistent --tmux-target rollback:ops --cwd "${ROOT}" -- sleep 1 >/dev/null 2>&1
 rollback_rc=$?
@@ -241,15 +252,15 @@ fi
 
 printf '%s\n' '{"schema_version":"orca.observed.v1","updated_at":"2026-03-14T00:00:00Z","entries":[' > "${REGISTRY_PATH}"
 set +e
-malformed_list_output="$(run_orca monitor list --json 2>&1)"
+malformed_list_output="$(run_orca observe list --json 2>&1)"
 malformed_list_rc=$?
 set -e
 if [[ "${malformed_list_rc}" -ne 3 ]]; then
-  echo "expected malformed registry document to fail monitor list with exit 3, got ${malformed_list_rc}" >&2
+  echo "expected malformed registry document to fail observe list with exit 3, got ${malformed_list_rc}" >&2
   exit 1
 fi
 if ! grep -F "invalid observed registry document" <<<"${malformed_list_output}" >/dev/null; then
-  echo "expected clear malformed registry load error in monitor list output" >&2
+  echo "expected clear malformed registry load error in observe list output" >&2
   exit 1
 fi
 
@@ -257,11 +268,11 @@ cat > "${REGISTRY_PATH}" <<'JSON'
 {"schema_version":"orca.observed.v1","updated_at":"2026-03-14T00:00:00Z","entries":[{"id":"observed-invalid","mode":"observed","lifecycle":"forever","tmux_target":"existing:ops","source":"monitor_add"}]}
 JSON
 set +e
-invalid_entry_list_output="$(run_orca monitor list --json 2>&1)"
+invalid_entry_list_output="$(run_orca observe list --json 2>&1)"
 invalid_entry_list_rc=$?
 set -e
 if [[ "${invalid_entry_list_rc}" -ne 3 ]]; then
-  echo "expected semantically invalid registry entry to fail monitor list with exit 3, got ${invalid_entry_list_rc}" >&2
+  echo "expected semantically invalid registry entry to fail observe list with exit 3, got ${invalid_entry_list_rc}" >&2
   exit 1
 fi
 if ! grep -F "every entry.lifecycle must be one of: ephemeral, persistent" <<<"${invalid_entry_list_output}" >/dev/null; then

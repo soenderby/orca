@@ -15,10 +15,10 @@ Commands:
   start [count] [--runs N|--continuous] [--drain|--watch] [--no-work-retries N] [--reasoning-level LEVEL]
   stop
   status [--quick|--full] [--json] [--session-id ID] [--session-prefix PREFIX]
-  status --follow [--poll-interval SECONDS] [--max-events N] [--replay-baseline] [--render MODE] [--session-id ID] [--session-prefix PREFIX]
+  follow [--poll-interval SECONDS] [--max-events N]
   targets [--json] [--session-id ID] [--session-prefix PREFIX]
   jump <target>
-  monitor --follow [--poll-interval SECONDS] [--max-events N] [--replay-baseline] [--render MODE] [--session-id ID] [--session-prefix PREFIX]
+  monitor (deprecated)
   observe add --id AGENT_ID --lifecycle LIFECYCLE --tmux-target TARGET [--cwd PATH]
   observe remove --id AGENT_ID
   observe list [--json]
@@ -55,7 +55,16 @@ case "${subcommand}" in
     exec "${SCRIPT_DIR}/stop.sh" "$@"
     ;;
   status)
+    for arg in "$@"; do
+      if [[ "${arg}" == "--follow" || "${arg}" == "follow" ]]; then
+        echo "status --follow has been removed; use orca follow" >&2
+        exit 1
+      fi
+    done
     exec "${SCRIPT_DIR}/status.sh" "$@"
+    ;;
+  follow)
+    exec "${SCRIPT_DIR}/follow.sh" "$@"
     ;;
   targets)
     exec "${SCRIPT_DIR}/targets.sh" "$@"

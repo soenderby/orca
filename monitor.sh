@@ -78,7 +78,7 @@ FOLLOW_MAX_EVENTS=0
 FOLLOW_INTERRUPTED=0
 MANAGED_FOLLOW_PID=""
 MANAGED_FOLLOW_FD=""
-declare -A MANAGED_EVENT_IDS_SEEN=()
+MANAGED_LAST_EVENT_LINE=""
 
 tmux_follow_health_probe() {
   local probe_output=""
@@ -341,17 +341,12 @@ stop_managed_follow_stream() {
 
 emit_managed_follow_event_if_new() {
   local managed_event_line="$1"
-  local event_id=""
-
-  event_id="$(jq -r 'if type == "object" then (.event_id // "") else "" end' <<<"${managed_event_line}" 2>/dev/null || true)"
-  if [[ -n "${event_id}" && -n "${MANAGED_EVENT_IDS_SEEN[${event_id}]:-}" ]]; then
+  # Suppress only exact duplicate line replay; do not globally dedupe by event_id.
+  if [[ -n "${MANAGED_LAST_EVENT_LINE}" && "${managed_event_line}" == "${MANAGED_LAST_EVENT_LINE}" ]]; then
     return 1
   fi
 
-  if [[ -n "${event_id}" ]]; then
-    MANAGED_EVENT_IDS_SEEN["${event_id}"]=1
-  fi
-
+  MANAGED_LAST_EVENT_LINE="${managed_event_line}"
   printf '%s\n' "${managed_event_line}"
   return 0
 }
@@ -369,7 +364,7 @@ cmd_follow() {
   local now_epoch=0
   local next_observed_poll_epoch=0
 
-  MANAGED_EVENT_IDS_SEEN=()
+  MANAGED_LAST_EVENT_LINE=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in

@@ -10,7 +10,9 @@ REGISTRY_PATH="${TMP_DIR}/state/orca/observed-sessions.json"
 TMUX_SESSIONS_FILE="${TMP_DIR}/tmux-sessions"
 TMUX_HEALTH_MODE_FILE="${TMP_DIR}/tmux-health-mode"
 MANAGED_STREAM_FILE="${TMP_DIR}/managed-stream.jsonl"
+MANAGED_FLAP_STREAM_FILE="${TMP_DIR}/managed-flap-stream.jsonl"
 OUT_FILE="${TMP_DIR}/monitor-follow.jsonl"
+MANAGED_FLAP_OUT_FILE="${TMP_DIR}/monitor-follow-managed-flap.jsonl"
 FILTER_OUT_FILE="${TMP_DIR}/monitor-follow-filtered.jsonl"
 RUNTIME_FAIL_OUT_FILE="${TMP_DIR}/monitor-follow-runtime-fail.jsonl"
 
@@ -119,6 +121,47 @@ fi
 exit 1
 TMUX_STUB
 chmod +x "${STUB_BIN_DIR}/tmux"
+
+managed_flap_up_one='{"schema_version":"orca.monitor.v2","observed_at":"2026-03-14T11:59:58Z","event_type":"session_up","event_id":"session_up:managed-flap","session_id":"managed-flap","mode":"managed","tmux_target":"orca-agent-flap","session":{"session_id":"managed-flap","tmux_target":"orca-agent-flap","active":true}}'
+managed_flap_down='{"schema_version":"orca.monitor.v2","observed_at":"2026-03-14T11:59:59Z","event_type":"session_down","event_id":"session_down:managed-flap","session_id":"managed-flap","mode":"managed","tmux_target":"orca-agent-flap","session":{"session_id":"managed-flap","tmux_target":"orca-agent-flap","active":false}}'
+managed_flap_up_two='{"schema_version":"orca.monitor.v2","observed_at":"2026-03-14T12:00:00Z","event_type":"session_up","event_id":"session_up:managed-flap","session_id":"managed-flap","mode":"managed","tmux_target":"orca-agent-flap","session":{"session_id":"managed-flap","tmux_target":"orca-agent-flap","active":true}}'
+printf '%s\n%s\n%s\n' "${managed_flap_up_one}" "${managed_flap_down}" "${managed_flap_up_two}" > "${MANAGED_FLAP_STREAM_FILE}"
+
+cat > "${REGISTRY_PATH}" <<'JSON'
+{"schema_version":"orca.observed.v1","updated_at":"2026-03-14T11:59:58Z","entries":[]}
+JSON
+
+printf '%s\n' "obs" "other" > "${TMUX_SESSIONS_FILE}"
+echo "ok" > "${TMUX_HEALTH_MODE_FILE}"
+
+(
+  cd "${WORKTREE_DIR}"
+  PATH="${STUB_BIN_DIR}:/usr/bin:/bin" \
+    ORCA_OBSERVED_REGISTRY_PATH="${REGISTRY_PATH}" \
+    ORCA_TEST_TMUX_SESSIONS="${TMUX_SESSIONS_FILE}" \
+    ORCA_TEST_TMUX_HEALTH_MODE_FILE="${TMUX_HEALTH_MODE_FILE}" \
+    ORCA_TEST_STATUS_EMIT=1 \
+    ORCA_TEST_STATUS_STREAM_FILE="${MANAGED_FLAP_STREAM_FILE}" \
+    bash ./orca.sh monitor --follow --poll-interval 1 --max-events 3 > "${MANAGED_FLAP_OUT_FILE}"
+) &
+managed_flap_pid=$!
+
+if ! wait_for_pid "${managed_flap_pid}" 20; then
+  echo "monitor --follow did not complete managed flap scenario" >&2
+  exit 1
+fi
+
+if [[ "$(jq -r '.event_type' "${MANAGED_FLAP_OUT_FILE}" | paste -sd ',' -)" != "session_up,session_down,session_up" ]]; then
+  echo "expected managed flap ordering session_up,session_down,session_up" >&2
+  cat "${MANAGED_FLAP_OUT_FILE}" >&2
+  exit 1
+fi
+
+if [[ "$(jq -r 'select(.mode == "managed" and .session_id == "managed-flap" and .event_type == "session_up") | .event_type' "${MANAGED_FLAP_OUT_FILE}" | wc -l | tr -d '[:space:]')" -ne 2 ]]; then
+  echo "expected two managed session_up events for flap sequence" >&2
+  cat "${MANAGED_FLAP_OUT_FILE}" >&2
+  exit 1
+fi
 
 managed_event='{"schema_version":"orca.monitor.v2","observed_at":"2026-03-14T12:00:00Z","event_type":"run_started","event_id":"run_started:managed-1:run-0001","session_id":"managed-1","mode":"managed","tmux_target":"orca-agent-1","run":{"run_id":"run-0001","state":"running","result":null,"issue_status":null,"summary_path":null},"passthrough_marker":"keep-me"}'
 printf '%s\n%s\n' "${managed_event}" "${managed_event}" > "${MANAGED_STREAM_FILE}"

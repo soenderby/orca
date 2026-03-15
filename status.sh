@@ -2,6 +2,8 @@
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
+# shellcheck source=/dev/null
+source "${ROOT}/lib/follow-render.sh"
 SESSION_PREFIX="${SESSION_PREFIX:-orca-agent}"
 METRICS_FILE="${ROOT}/agent-logs/metrics.jsonl"
 SESSION_LOG_ROOT="${ROOT}/agent-logs/sessions"
@@ -20,14 +22,15 @@ FOLLOW_MODE=0
 FOLLOW_POLL_INTERVAL_SECONDS=2
 FOLLOW_MAX_EVENTS=0
 FOLLOW_REPLAY_BASELINE=0
+FOLLOW_RENDER_MODE="jsonl"
 
 usage() {
   cat <<USAGE
 Usage:
   ./orca.sh status [--quick|--full] [--json] [--session-id ID] [--session-prefix PREFIX]
-  ./orca.sh status --follow [--poll-interval SECONDS] [--max-events N] [--replay-baseline] [--session-id ID] [--session-prefix PREFIX]
+  ./orca.sh status --follow [--poll-interval SECONDS] [--max-events N] [--replay-baseline] [--render MODE] [--session-id ID] [--session-prefix PREFIX]
   ./status.sh [--quick|--full] [--json] [--session-id ID] [--session-prefix PREFIX]
-  ./status.sh --follow [--poll-interval SECONDS] [--max-events N] [--replay-baseline] [--session-id ID] [--session-prefix PREFIX]
+  ./status.sh --follow [--poll-interval SECONDS] [--max-events N] [--replay-baseline] [--render MODE] [--session-id ID] [--session-prefix PREFIX]
 
 Modes:
   --quick  Fast active-operations summary (default)
@@ -43,6 +46,7 @@ Follow options:
   --poll-interval N      Follow poll interval in seconds (default: 2)
   --max-events N         Stop follow mode after N emitted events (default: 0=unbounded)
   --replay-baseline      Replay startup transitions from historical baseline state
+  --render MODE          Follow output renderer: jsonl (default) or structured
 USAGE
 }
 
@@ -96,6 +100,15 @@ while [[ $# -gt 0 ]]; do
     --replay-baseline)
       FOLLOW_REPLAY_BASELINE=1
       ;;
+    --render)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing value for --render" >&2
+        usage >&2
+        exit 1
+      fi
+      FOLLOW_RENDER_MODE="$2"
+      shift
+      ;;
     --session-id)
       if [[ $# -lt 2 ]]; then
         echo "Missing value for --session-id" >&2
@@ -134,10 +147,16 @@ if ! is_non_negative_int "${FOLLOW_MAX_EVENTS}"; then
   invalid "--max-events must be a non-negative integer"
 fi
 if [[ "${FOLLOW_MODE}" -eq 1 ]] && [[ "${OUTPUT_JSON}" -eq 1 ]]; then
-  invalid "--json is not supported with --follow (follow mode always emits JSON lines)"
+  invalid "--json is not supported with --follow"
 fi
 if [[ "${FOLLOW_MODE}" -eq 1 ]] && ! command -v jq >/dev/null 2>&1; then
   invalid "--follow requires jq"
+fi
+if ! orca_follow_render_mode_valid "${FOLLOW_RENDER_MODE}"; then
+  invalid "--render must be one of: jsonl, structured"
+fi
+if [[ "${FOLLOW_MODE}" -eq 0 ]] && [[ "${FOLLOW_RENDER_MODE}" != "jsonl" ]]; then
+  invalid "--render is supported only with --follow"
 fi
 
 session_filter_active() {
@@ -809,7 +828,7 @@ run_follow_monitor() {
   local emitted=0
   local lines=""
   local line=""
-  local line_count=0
+  local rendered_line=""
 
   if [[ "${FOLLOW_REPLAY_BASELINE}" -eq 0 ]]; then
     previous_snapshot_json="$(collect_follow_snapshot_json)"
@@ -819,12 +838,15 @@ run_follow_monitor() {
     current_snapshot_json="$(collect_follow_snapshot_json)"
     lines="$(emit_follow_events_jsonl "${previous_snapshot_json}" "${current_snapshot_json}")"
     if [[ -n "${lines}" ]]; then
-      printf '%s\n' "${lines}"
-      line_count="$(printf '%s\n' "${lines}" | sed '/^[[:space:]]*$/d' | wc -l | tr -d '[:space:]')"
-      emitted=$((emitted + line_count))
-      if [[ "${FOLLOW_MAX_EVENTS}" -gt 0 && "${emitted}" -ge "${FOLLOW_MAX_EVENTS}" ]]; then
-        break
-      fi
+      while IFS= read -r line; do
+        [[ -n "${line}" ]] || continue
+        rendered_line="$(orca_follow_render_line "${line}" "${FOLLOW_RENDER_MODE}")"
+        printf '%s\n' "${rendered_line}"
+        emitted=$((emitted + 1))
+        if [[ "${FOLLOW_MAX_EVENTS}" -gt 0 && "${emitted}" -ge "${FOLLOW_MAX_EVENTS}" ]]; then
+          break 2
+        fi
+      done <<< "${lines}"
     fi
     previous_snapshot_json="${current_snapshot_json}"
     sleep "${FOLLOW_POLL_INTERVAL_SECONDS}"

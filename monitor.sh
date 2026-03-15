@@ -7,6 +7,8 @@ ROOT="$(git rev-parse --show-toplevel)"
 source "${ROOT}/lib/observed-registry.sh"
 # shellcheck source=/dev/null
 source "${ROOT}/lib/tmux-target.sh"
+# shellcheck source=/dev/null
+source "${ROOT}/lib/follow-render.sh"
 
 EXIT_SUCCESS=0
 EXIT_FAILURE=3
@@ -15,11 +17,11 @@ EXIT_INVALID=4
 usage() {
   cat <<'USAGE'
 Usage:
-  ./orca.sh monitor --follow [--poll-interval SECONDS] [--max-events N] [--replay-baseline] [--session-id ID] [--session-prefix PREFIX]
+  ./orca.sh monitor --follow [--poll-interval SECONDS] [--max-events N] [--replay-baseline] [--render MODE] [--session-id ID] [--session-prefix PREFIX]
   ./orca.sh monitor add --id AGENT_ID --lifecycle LIFECYCLE --tmux-target TARGET [--cwd PATH]
   ./orca.sh monitor remove --id AGENT_ID
   ./orca.sh monitor list [--json]
-  ./monitor.sh --follow [--poll-interval SECONDS] [--max-events N] [--replay-baseline] [--session-id ID] [--session-prefix PREFIX]
+  ./monitor.sh --follow [--poll-interval SECONDS] [--max-events N] [--replay-baseline] [--render MODE] [--session-id ID] [--session-prefix PREFIX]
   ./monitor.sh add --id AGENT_ID --lifecycle LIFECYCLE --tmux-target TARGET [--cwd PATH]
   ./monitor.sh remove --id AGENT_ID
   ./monitor.sh list [--json]
@@ -76,6 +78,7 @@ SESSION_FILTER_PREFIX=""
 FOLLOW_POLL_INTERVAL_SECONDS=5
 FOLLOW_MAX_EVENTS=0
 FOLLOW_REPLAY_BASELINE=0
+FOLLOW_RENDER_MODE="jsonl"
 FOLLOW_INTERRUPTED=0
 MANAGED_FOLLOW_PID=""
 MANAGED_FOLLOW_FD=""
@@ -345,13 +348,15 @@ stop_managed_follow_stream() {
 
 emit_managed_follow_event_if_new() {
   local managed_event_line="$1"
+  local rendered_line=""
   # Suppress only exact duplicate line replay; do not globally dedupe by event_id.
   if [[ -n "${MANAGED_LAST_EVENT_LINE}" && "${managed_event_line}" == "${MANAGED_LAST_EVENT_LINE}" ]]; then
     return 1
   fi
 
   MANAGED_LAST_EVENT_LINE="${managed_event_line}"
-  printf '%s\n' "${managed_event_line}"
+  rendered_line="$(orca_follow_render_line "${managed_event_line}" "${FOLLOW_RENDER_MODE}")"
+  printf '%s\n' "${rendered_line}"
   return 0
 }
 
@@ -387,6 +392,11 @@ cmd_follow() {
       --replay-baseline)
         FOLLOW_REPLAY_BASELINE=1
         ;;
+      --render)
+        [[ $# -ge 2 ]] || invalid "missing value for --render"
+        FOLLOW_RENDER_MODE="$2"
+        shift
+        ;;
       --session-id)
         [[ $# -ge 2 ]] || invalid "missing value for --session-id"
         SESSION_FILTER_ID="$2"
@@ -414,6 +424,9 @@ cmd_follow() {
   if ! is_non_negative_int "${FOLLOW_MAX_EVENTS}"; then
     invalid "--max-events must be a non-negative integer"
   fi
+  if ! orca_follow_render_mode_valid "${FOLLOW_RENDER_MODE}"; then
+    invalid "--render must be one of: jsonl, structured"
+  fi
   if ! command -v tmux >/dev/null 2>&1; then
     fail "tmux is required for monitor --follow"
   fi
@@ -440,7 +453,7 @@ cmd_follow() {
       if [[ -n "${observed_event_lines}" ]]; then
         while IFS= read -r observed_event_line; do
           [[ -n "${observed_event_line}" ]] || continue
-          printf '%s\n' "${observed_event_line}"
+          printf '%s\n' "$(orca_follow_render_line "${observed_event_line}" "${FOLLOW_RENDER_MODE}")"
           emitted=$((emitted + 1))
           if [[ "${FOLLOW_MAX_EVENTS}" -gt 0 && "${emitted}" -ge "${FOLLOW_MAX_EVENTS}" ]]; then
             stop_requested=1

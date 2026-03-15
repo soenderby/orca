@@ -199,6 +199,27 @@ if ! grep -Fx -- "${managed_event}" "${OUT_FILE}" >/dev/null; then
   exit 1
 fi
 
+if [[ "$(wc -l < "${OUT_FILE}" | tr -d '[:space:]')" -ne 3 ]]; then
+  echo "expected exactly three merged follow events" >&2
+  cat "${OUT_FILE}" >&2
+  exit 1
+fi
+
+expected_merged_sequence="observed:session_up:observed-1,managed:run_started:managed-1,observed:session_down:observed-1"
+actual_merged_sequence="$(jq -r '[.mode, .event_type, .session_id] | join(":")' "${OUT_FILE}" | paste -sd ',' -)"
+if [[ "${actual_merged_sequence}" != "${expected_merged_sequence}" ]]; then
+  echo "unexpected merged follow ordering; expected ${expected_merged_sequence}, got ${actual_merged_sequence}" >&2
+  cat "${OUT_FILE}" >&2
+  exit 1
+fi
+
+managed_line_number="$(grep -n -F -- "${managed_event}" "${OUT_FILE}" | cut -d: -f1 | head -n 1)"
+if [[ "${managed_line_number}" != "2" ]]; then
+  echo "expected managed passthrough event to remain on line 2 in merged output" >&2
+  cat "${OUT_FILE}" >&2
+  exit 1
+fi
+
 if [[ "$(jq -r 'select(.mode == "managed" and .event_id == "run_started:managed-1:run-0001") | .event_id' "${OUT_FILE}" | wc -l | tr -d '[:space:]')" -ne 1 ]]; then
   echo "expected managed event_id run_started:managed-1:run-0001 exactly once" >&2
   cat "${OUT_FILE}" >&2

@@ -76,8 +76,8 @@ JSON
 
 wait "${follow_pid}"
 
-if [[ "$(wc -l < "${OUT_FILE}" | tr -d '[:space:]')" -lt 4 ]]; then
-  echo "expected at least 4 follow events" >&2
+if [[ "$(wc -l < "${OUT_FILE}" | tr -d '[:space:]')" -ne 4 ]]; then
+  echo "expected exactly 4 follow events" >&2
   cat "${OUT_FILE}" >&2
   exit 1
 fi
@@ -98,6 +98,23 @@ if ! jq -e 'select(.event_type == "session_down")' "${OUT_FILE}" >/dev/null; the
   echo "missing session_down event" >&2
   exit 1
 fi
+
+expected_event_sequence="session_up,run_started,run_completed,session_down"
+actual_event_sequence="$(jq -r '.event_type' "${OUT_FILE}" | paste -sd ',' -)"
+if [[ "${actual_event_sequence}" != "${expected_event_sequence}" ]]; then
+  echo "unexpected follow event order; expected ${expected_event_sequence}, got ${actual_event_sequence}" >&2
+  cat "${OUT_FILE}" >&2
+  exit 1
+fi
+
+expected_event_ids="session_up:${SESSION_ID},run_started:${SESSION_ID}:${RUN_ID},run_completed:${SESSION_ID}:${RUN_ID},session_down:${SESSION_ID}"
+actual_event_ids="$(jq -r '.event_id' "${OUT_FILE}" | paste -sd ',' -)"
+if [[ "${actual_event_ids}" != "${expected_event_ids}" ]]; then
+  echo "unexpected follow event_id order; expected ${expected_event_ids}, got ${actual_event_ids}" >&2
+  cat "${OUT_FILE}" >&2
+  exit 1
+fi
+
 if ! jq -e 'select(.event_type == "run_started") | .event_id' "${OUT_FILE}" | sort | uniq -d | grep . >/dev/null 2>&1; then
   :
 else

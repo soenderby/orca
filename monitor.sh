@@ -15,11 +15,11 @@ EXIT_INVALID=4
 usage() {
   cat <<'USAGE'
 Usage:
-  ./orca.sh monitor --follow [--poll-interval SECONDS] [--max-events N] [--session-id ID] [--session-prefix PREFIX]
+  ./orca.sh monitor --follow [--poll-interval SECONDS] [--max-events N] [--replay-baseline] [--session-id ID] [--session-prefix PREFIX]
   ./orca.sh monitor add --id AGENT_ID --lifecycle LIFECYCLE --tmux-target TARGET [--cwd PATH]
   ./orca.sh monitor remove --id AGENT_ID
   ./orca.sh monitor list [--json]
-  ./monitor.sh --follow [--poll-interval SECONDS] [--max-events N] [--session-id ID] [--session-prefix PREFIX]
+  ./monitor.sh --follow [--poll-interval SECONDS] [--max-events N] [--replay-baseline] [--session-id ID] [--session-prefix PREFIX]
   ./monitor.sh add --id AGENT_ID --lifecycle LIFECYCLE --tmux-target TARGET [--cwd PATH]
   ./monitor.sh remove --id AGENT_ID
   ./monitor.sh list [--json]
@@ -75,6 +75,7 @@ SESSION_FILTER_ID=""
 SESSION_FILTER_PREFIX=""
 FOLLOW_POLL_INTERVAL_SECONDS=5
 FOLLOW_MAX_EVENTS=0
+FOLLOW_REPLAY_BASELINE=0
 FOLLOW_INTERRUPTED=0
 MANAGED_FOLLOW_PID=""
 MANAGED_FOLLOW_FD=""
@@ -296,6 +297,9 @@ emit_observed_follow_events_jsonl() {
 
 start_managed_follow_stream() {
   local -a cmd=(bash "${ROOT}/status.sh" --follow --poll-interval "${FOLLOW_POLL_INTERVAL_SECONDS}" --max-events 0)
+  if [[ "${FOLLOW_REPLAY_BASELINE}" -eq 1 ]]; then
+    cmd+=(--replay-baseline)
+  fi
 
   if [[ -n "${SESSION_FILTER_ID}" ]]; then
     cmd+=(--session-id "${SESSION_FILTER_ID}")
@@ -380,6 +384,9 @@ cmd_follow() {
         FOLLOW_MAX_EVENTS="$2"
         shift
         ;;
+      --replay-baseline)
+        FOLLOW_REPLAY_BASELINE=1
+        ;;
       --session-id)
         [[ $# -ge 2 ]] || invalid "missing value for --session-id"
         SESSION_FILTER_ID="$2"
@@ -412,6 +419,9 @@ cmd_follow() {
   fi
   if ! tmux_follow_health_probe; then
     fail "tmux health probe failed for monitor --follow"
+  fi
+  if [[ "${FOLLOW_REPLAY_BASELINE}" -eq 0 ]]; then
+    previous_observed_snapshot_json="$(collect_observed_follow_snapshot_json)"
   fi
 
   start_managed_follow_stream

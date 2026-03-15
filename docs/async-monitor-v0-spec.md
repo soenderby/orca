@@ -65,7 +65,9 @@ Optional fields:
 
 For `mode="managed"`, session liveness is derived from tmux target availability, not run summaries.
 
-- `session_up` is emitted on an `inactive -> active` transition (including first observation of an already-active managed session).
+- Default follow mode (`status --follow` without replay flag) starts from current snapshot and emits no startup replay for already-active historical sessions.
+- Replay mode (`status --follow --replay-baseline`) emits startup transitions for historical state as legacy catch-up behavior.
+- `session_up` is emitted on an `inactive -> active` transition (including first observation in replay mode).
 - `session_down` is emitted on an `active -> inactive` transition.
 - `session_down` is **not** inferred from graceful loop stop, run completion, or summary result.
 - Legacy lifecycle names (`session_started`, `loop_stopped`) are invalid for v2 streams.
@@ -100,6 +102,7 @@ Top-level additions to `orca.sh`:
 ./orca.sh monitor --follow \
   [--poll-interval SECONDS] \
   [--max-events N] \
+  [--replay-baseline] \
   [--session-id ID] \
   [--session-prefix PREFIX]
 ```
@@ -111,6 +114,8 @@ Behavior:
   - managed lifecycle events from `./orca.sh status --follow`
   - observed target liveness events from registry + tmux polling,
 - merged stream is append-only JSONL with newest events appended at bottom in monitor emission order,
+- default mode is live-from-now (no startup replay for managed or observed paths),
+- `--replay-baseline` restores startup replay semantics,
 - hard-fails if `tmux` is unavailable (no degraded mode in v0).
 
 Defaults:
@@ -335,7 +340,8 @@ Field semantics:
 11. `monitor --follow` emits `session_up/session_down` for observed targets.
 12. `monitor --follow` hard-fails with exit code `3` when `tmux` is unavailable.
 13. Follow events do not emit duplicate transition events for unchanged state.
-14. Registry writes stay atomic under concurrent add/remove operations.
+14. Default follow mode emits only post-subscription transitions; startup baseline replay requires explicit `--replay-baseline`.
+15. Registry writes stay atomic under concurrent add/remove operations.
 
 ---
 

@@ -107,10 +107,10 @@ Operating stance: autonomy with explicit protocol guidance (Option C; see `docs/
 - `doctor [--json]`
 - `stop`
 - `status [--quick|--full] [--json] [--session-id ID] [--session-prefix PREFIX]`
-- `status --follow [--poll-interval SECONDS] [--max-events N] [--session-id ID] [--session-prefix PREFIX]`
+- `status --follow [--poll-interval SECONDS] [--max-events N] [--replay-baseline] [--session-id ID] [--session-prefix PREFIX]`
 - `targets [--json] [--session-id ID] [--session-prefix PREFIX]`
 - `jump <target>`
-- `monitor --follow [--poll-interval SECONDS] [--max-events N] [--session-id ID] [--session-prefix PREFIX]`
+- `monitor --follow [--poll-interval SECONDS] [--max-events N] [--replay-baseline] [--session-id ID] [--session-prefix PREFIX]`
 - `monitor add --id AGENT_ID --lifecycle LIFECYCLE --tmux-target TARGET [--cwd PATH]`
 - `monitor remove --id AGENT_ID`
 - `monitor list [--json]`
@@ -438,6 +438,8 @@ Managed follow v2 contract (frozen target for monitor layering; implemented in `
 - managed `session_down` semantics: emit only on tmux liveness transition `active -> inactive`; never infer from graceful loop stop or run completion
 - transition-only behavior: unchanged snapshots must not re-emit the same lifecycle transition
 - stream ordering: follow output is append-only JSONL; events are emitted as new lines at the bottom in emission order; previously emitted lines are never rewritten
+- default startup behavior: `--follow` starts from "now" (captures baseline snapshot without replaying historical startup transitions)
+- opt-in replay behavior: `--replay-baseline` restores startup baseline replay transitions for catch-up tooling
 - v2 excludes legacy names `session_started` and `loop_stopped`
 
 Tuning knobs:
@@ -516,6 +518,7 @@ Pane B (interactive target selection + jump):
 6. `observe start` creates detached tmux targets, registers them as observed, and rolls back tmux session creation if registry write fails.
 7. observed registry loading is strict on `list/add/remove/observe start`: malformed JSON or invalid persisted entry fields (`id`, `lifecycle`, `tmux_target`) are rejected with operational failure; no auto-repair/normalization is attempted.
 8. `monitor --follow` hard-fails with exit code `3` when `tmux` is unavailable.
+9. default follow mode is live-from-now (no startup replay for managed or observed paths); use `--replay-baseline` to restore startup replay.
 
 Regression checks:
 

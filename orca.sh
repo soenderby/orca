@@ -15,10 +15,10 @@ Commands:
   start [count] [--runs N|--continuous] [--drain|--watch] [--no-work-retries N] [--reasoning-level LEVEL]
   stop
   status [--quick|--full] [--json] [--session-id ID] [--session-prefix PREFIX]
-  status --follow [--poll-interval SECONDS] [--max-events N] [--session-id ID] [--session-prefix PREFIX]
+  status --follow [--poll-interval SECONDS] [--max-events N] [--replay-baseline] [--session-id ID] [--session-prefix PREFIX]
   targets [--json] [--session-id ID] [--session-prefix PREFIX]
   jump <target>
-  monitor --follow [--poll-interval SECONDS] [--max-events N] [--session-id ID] [--session-prefix PREFIX]
+  monitor --follow [--poll-interval SECONDS] [--max-events N] [--replay-baseline] [--session-id ID] [--session-prefix PREFIX]
   monitor add --id AGENT_ID --lifecycle LIFECYCLE --tmux-target TARGET [--cwd PATH]
   monitor remove --id AGENT_ID
   monitor list [--json]

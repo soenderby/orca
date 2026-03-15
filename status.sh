@@ -19,14 +19,15 @@ OUTPUT_JSON=0
 FOLLOW_MODE=0
 FOLLOW_POLL_INTERVAL_SECONDS=2
 FOLLOW_MAX_EVENTS=0
+FOLLOW_REPLAY_BASELINE=0
 
 usage() {
   cat <<USAGE
 Usage:
   ./orca.sh status [--quick|--full] [--json] [--session-id ID] [--session-prefix PREFIX]
-  ./orca.sh status --follow [--poll-interval SECONDS] [--max-events N] [--session-id ID] [--session-prefix PREFIX]
+  ./orca.sh status --follow [--poll-interval SECONDS] [--max-events N] [--replay-baseline] [--session-id ID] [--session-prefix PREFIX]
   ./status.sh [--quick|--full] [--json] [--session-id ID] [--session-prefix PREFIX]
-  ./status.sh --follow [--poll-interval SECONDS] [--max-events N] [--session-id ID] [--session-prefix PREFIX]
+  ./status.sh --follow [--poll-interval SECONDS] [--max-events N] [--replay-baseline] [--session-id ID] [--session-prefix PREFIX]
 
 Modes:
   --quick  Fast active-operations summary (default)
@@ -41,6 +42,7 @@ Session scope:
 Follow options:
   --poll-interval N      Follow poll interval in seconds (default: 2)
   --max-events N         Stop follow mode after N emitted events (default: 0=unbounded)
+  --replay-baseline      Replay startup transitions from historical baseline state
 USAGE
 }
 
@@ -90,6 +92,9 @@ while [[ $# -gt 0 ]]; do
       fi
       FOLLOW_MAX_EVENTS="$2"
       shift
+      ;;
+    --replay-baseline)
+      FOLLOW_REPLAY_BASELINE=1
       ;;
     --session-id)
       if [[ $# -lt 2 ]]; then
@@ -805,6 +810,10 @@ run_follow_monitor() {
   local lines=""
   local line=""
   local line_count=0
+
+  if [[ "${FOLLOW_REPLAY_BASELINE}" -eq 0 ]]; then
+    previous_snapshot_json="$(collect_follow_snapshot_json)"
+  fi
 
   while true; do
     current_snapshot_json="$(collect_follow_snapshot_json)"

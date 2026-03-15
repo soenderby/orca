@@ -99,7 +99,7 @@ Requirements for hooks:
 
 ## Operational Notes
 
-- This utility does not replace `orca monitor/follow`; use those for live awareness.
+- This utility does not replace `orca follow`/`orca observe`; use those for live awareness and observed-target lifecycle.
 - Keep `--max-slots` aligned with available worktrees and desired concurrency.
 - If your queue contains intentionally open tracker issues, consider whether exit-on-open-zero behavior matches your workflow.
 - Launch failures are logged and retried on the next cycle.

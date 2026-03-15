@@ -269,6 +269,22 @@ if [[ "${monitor_follow_rc}" -ne 4 ]]; then
   exit 1
 fi
 
+set +e
+(
+  cd "${WORKTREE_DIR}"
+  PATH="${STUB_BIN_DIR}:/usr/bin:/bin" \
+    ORCA_OBSERVED_REGISTRY_PATH="${REGISTRY_PATH}" \
+    ORCA_TEST_TMUX_SESSIONS="${TMUX_SESSIONS_FILE}" \
+    ORCA_TEST_TMUX_HEALTH_MODE_FILE="${TMUX_HEALTH_MODE_FILE}" \
+    bash ./orca.sh status --follow >/dev/null 2>&1
+)
+status_follow_rc=$?
+set -e
+if [[ "${status_follow_rc}" -ne 1 ]]; then
+  echo "expected status --follow to be rejected with exit 1, got ${status_follow_rc}" >&2
+  exit 1
+fi
+
 for removed_opt in --replay-baseline --session-id --session-prefix --render; do
   set +e
   (

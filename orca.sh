@@ -15,14 +15,6 @@ Commands:
   start [count] [--runs N|--continuous(self-select only)] [--drain|--watch] [--no-work-retries N] [--reasoning-level LEVEL]
   stop
   status [--quick|--full] [--json] [--session-id ID] [--session-prefix PREFIX]
-  follow [--poll-interval SECONDS] [--max-events N]
-  targets [--json] [--session-id ID] [--session-prefix PREFIX]
-  jump <target>
-  observe add --id AGENT_ID --lifecycle LIFECYCLE --tmux-target TARGET [--cwd PATH]
-  observe remove --id AGENT_ID
-  observe list [--json]
-  observe start --id AGENT_ID --lifecycle LIFECYCLE --tmux-target TARGET --cwd PATH -- <command...>
-  wait [--timeout SECONDS] [--session-id ID] [--session-prefix PREFIX] [--json]
   plan [--slots N] [--output PATH]
   dep-sanity [--issues-jsonl PATH] [--output PATH] [--strict]
   gc-run-branches [--apply] [--base REF]
@@ -54,28 +46,7 @@ case "${subcommand}" in
     exec "${SCRIPT_DIR}/stop.sh" "$@"
     ;;
   status)
-    for arg in "$@"; do
-      if [[ "${arg}" == "--follow" || "${arg}" == "follow" ]]; then
-        echo "status --follow has been removed; use orca follow" >&2
-        exit 1
-      fi
-    done
     exec "${SCRIPT_DIR}/status.sh" "$@"
-    ;;
-  follow)
-    exec "${SCRIPT_DIR}/follow.sh" "$@"
-    ;;
-  targets)
-    exec "${SCRIPT_DIR}/targets.sh" "$@"
-    ;;
-  jump)
-    exec "${SCRIPT_DIR}/jump.sh" "$@"
-    ;;
-  observe)
-    exec "${SCRIPT_DIR}/observe.sh" "$@"
-    ;;
-  wait)
-    exec "${SCRIPT_DIR}/wait.sh" "$@"
     ;;
   plan)
     exec "${SCRIPT_DIR}/plan.sh" "$@"

@@ -14,7 +14,7 @@ Commands:
   doctor [--json]
   start [count] [--runs N|--continuous(self-select only)] [--drain|--watch] [--no-work-retries N] [--reasoning-level LEVEL]
   stop
-  status [--quick|--full] [--json] [--session-id ID] [--session-prefix PREFIX]
+  status [--json]
   plan [--slots N] [--output PATH]
   dep-sanity [--issues-jsonl PATH] [--output PATH] [--strict]
   gc-run-branches [--apply] [--base REF]

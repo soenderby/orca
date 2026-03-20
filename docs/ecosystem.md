@@ -116,19 +116,9 @@ No tool pushes information at the operator. No desktop notifications, no sounds,
 
 ## Sequencing
 
-### Phase 1: Prune Orca
+### Phase 1: Prune Orca ✓
 
-Delete the operator-cockpit surface from orca:
-
-- Delete: `follow.sh`, `observe.sh`, `targets.sh`, `jump.sh`, `wait.sh`, `monitor.sh`
-- Delete: `lib/follow-render.sh`, `lib/observed-registry.sh`, `lib/tmux-target.sh`
-- Delete: `docs/async-monitor-v0-spec.md`, `docs/async-monitor-v0-acceptance-matrix.md`, `docs/async-agent-supervision-plan.md`
-- Delete associated tests: `regression_monitor_primitives.sh`, `regression_monitor_observe_commands.sh`, `regression_monitor_follow_stream.sh`, `regression_follow_render_structured.sh`, `regression_status_follow_monitor.sh`, `regression_targets_inventory.sh`, `regression_jump_command.sh`, `regression_wait_command.sh`, `stress_monitor_registry_contention.sh`
-- Reduce `status.sh` to minimal batch-engine reporting: what sessions exist, their state, last summary per session.
-- Consolidate documentation. README becomes short. Remove references to deleted commands from OPERATOR_GUIDE and README.
-- Extract the artifact output contract (session log hierarchy, summary JSON schema, metrics format) into a dedicated document before pruning the README.
-
-Operate with `orca status` (minimal) and raw `tmux attach` during the gap.
+Completed. Deleted operator-cockpit surface (follow, observe, targets, jump, wait, monitor — scripts, libs, tests, docs). Rewrote `status.sh` to minimal batch-engine reporting (1,748 → 234 lines). Rewrote README (649 → 126 lines) and OPERATOR_GUIDE (353 → 134 lines). Extracted artifact contract to `docs/artifact-contract.md`.
 
 ### Phase 2: Build Watch
 

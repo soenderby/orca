@@ -1,66 +1,18 @@
 # Orca Operator Guide
 
-## Purpose
+## What Orca Does
 
-Orca is a local, multi-worktree execution harness for running autonomous coding agents in parallel. It manages session transport and observability while leaving task policy and judgment to agents.
+Orca is a batch execution engine for autonomous coding agents. It takes a queue of issues, assigns them to parallel agent slots, executes agents in isolated git worktrees with safe locking and merge primitives, captures structured run artifacts, and stops when work is done.
 
-Use Orca when you want to:
-
-1. run multiple agents concurrently with isolated git worktrees
-2. keep a durable run loop without manual re-launch for every issue
-3. preserve strong observability via logs, summaries, and metrics
-
-## Intent and Design Principles
-
-See `docs/design.md` for Orca's design principles and architectural constraints.
-See `docs/operating-modes.md` for the proposed `execute|explore` profile model and experiment plan.
-Mode/approach profile work is sequenced as optional overlays after the assignment-first planner baseline; it does not alter assignment/claim invariants.
-
-Current operating stance: autonomy with explicit protocol guidance (Option C; see `docs/decision-log.md`, DL-001). Operators should monitor protocol deviations through run artifacts and escalate to stronger enforcement only when violations become costly or frequent.
-
-### CLI Decision Rationale (Prototype Phase)
-
-During the current prototype phase, command behavior follows four explicit principles to prevent drift:
-
-1. Prototype-first break policy: compatibility is not required yet; breaking changes are acceptable when they remove complexity or solve proven operator pain.
-2. Follow is human-first live awareness: follow surfaces prioritize real-time visibility while staying script-friendly.
-3. Status is snapshot-oriented: `status` is the default point-in-time health surface; use follow only when continuous transitions matter.
-4. Complexity must be earned: we only add flags, modes, or coupling after concrete user/operator evidence.
-
-Command references in this guide and in `README.md`/`docs/async-monitor-v0-spec.md` should be interpreted through these principles.
-
-## When to Use Orca
-
-Use Orca when:
-
-1. the queue has multiple independent tasks
-2. you want predictable per-run artifacts and postmortem visibility
-3. a human operator is available to monitor and intervene on hard failures
-
-Avoid Orca when:
-
-1. tasks are highly coupled and require frequent manual pair-design
-2. a single high-risk migration needs tightly controlled sequential execution
+Orca is per-project. Each repo has its own queue, worktrees, and artifacts. See `docs/ecosystem.md` for how orca fits with other tools (watch, lore).
 
 ## Prerequisites
 
-From repo root environment, ensure:
-
 ```bash
-git --version
-br --version
-tmux -V
-jq --version
-flock --version
+git --version && br --version && tmux -V && jq --version && flock --version
 ```
 
-Also ensure:
-
-1. your configured `AGENT_COMMAND` is available and authenticated
-2. repo has push access to `origin`
-3. queue workspace exists (`br init`, once)
-4. queue ID prefix is configured (`br config set id.prefix orca`, once)
-5. queue has actionable work (`br ready --json`)
+Your configured `AGENT_COMMAND` must be available and authenticated. The repo needs push access to `origin`.
 
 For guided setup on Ubuntu/WSL:
 
@@ -70,284 +22,113 @@ For guided setup on Ubuntu/WSL:
 ./orca.sh doctor
 ```
 
-For a non-mutating preview:
-
-```bash
-./orca.sh bootstrap --yes --dry-run
-```
-
-`doctor` is read-only and returns a non-zero exit code only for hard requirement failures.
-`bootstrap` is mutating unless `--dry-run`; it fails hard when Codex authentication is still required.
-See `docs/setup.md` for the full onboarding procedure, manual auth/path steps, and troubleshooting map by doctor check ID.
-
-## Queue Sync and Concurrency Model
-
-1. `br` collaboration is git-based and async (`.beads/issues.jsonl`), not a central queue server.
-2. `--claim` is atomic per SQLite DB snapshot.
-3. Orca agents run in separate worktrees, so stale snapshots can still race unless claims are published centrally.
-4. Orca policy uses `queue-read-main.sh` on `ORCA_PRIMARY_REPO/main` for critical queue reads and `queue-write-main.sh` for queue mutations before/after coding as needed.
-5. Run branches must not carry `.beads/` changes; integration is code-only.
-6. Sync expectations:
-   - queue-read helper imports queue state before critical reads
-   - queue-write helper performs import/flush around each queue mutation
-   - commit/push `.beads/` updates on `main` as part of write-helper workflow
-
-Tooling contract note: these queue-safety protections are enforced by scripts/helpers and covered by regression tests (`tests/regression_queue_mutation_guardrails.sh`), not by prompt-only instructions.
-
-Queue mutation and merge/push share one writer lock scope (`ORCA_LOCK_SCOPE`, default `merge`) so all local `main` writes serialize.
-Local source-of-truth policy: local `main` is the default base for local setup and per-run branch creation; `origin/main` remains a sync peer and fallback. If they diverge, Orca warns with ahead/behind counts and still defaults to local `main`.
-
-Run branches (`swarm/agent-*`, `swarm/*-run-*`) are local transport state in this model; do not push them to origin during normal local operation.
-
-Cross-machine note: lock files are local to each clone. Global contention resolves through git publication order on `main`; failed claim publication should be treated as a race and retried with a fresh import.
-
-## Issue Parallel-Safety Metadata
-
-Orca supports lightweight label metadata to describe whether issues are safe to run concurrently.
-
-Label taxonomy:
-
-1. `px:exclusive`: the issue must run alone.
-2. `ck:<key>`: contention key; issues with the same key should not run in parallel.
-3. `meta:tracker`: parent/tracker issue used for coordination; excluded from default planner assignment.
-
-Precedence:
-
-1. `meta:tracker` issues are held by `plan.sh` with reason code `tracker-issue` in normal `assigned` mode.
-2. `px:exclusive` always overrides `ck:*`.
-3. Unlabeled issues are considered parallel-allowed by default.
-
-Authoring guidance:
-
-1. Use `px:exclusive` for work with broad blast radius or uncertain overlap.
-2. Use `ck:<key>` for bounded contention areas (for example `ck:queue`, `ck:docs`, `ck:agent-loop`).
-3. Reuse stable keys by subsystem so scheduling behavior stays predictable across sessions.
-4. Mark parent/tracker issues with `meta:tracker` at creation time; use child issues for implementation.
-5. Do not add labels by default; only label when you know there is real contention risk.
-
-Tracker lifecycle:
-
-1. Create tracker issues for cross-issue rollups and sequencing only.
-2. Keep tracker issues open while child issues are active so dependencies remain visible.
-3. Close the tracker after child issues are complete/merged and no follow-up execution remains.
-
 ## Core Workflow
 
-### 1) Setup
+### 1. Queue Work
+
+Create issues via `br`:
 
 ```bash
-./orca.sh setup-worktrees 2
+br create "Fix the widget parser" --description "..." --priority 1
 ```
 
-`setup-worktrees` picks base refs in this order: `ORCA_BASE_REF`, local `main`, `origin/main`, then current branch fallback. When `ORCA_BASE_REF` is set, setup fails fast if it does not resolve to a commit. When local `main` and `origin/main` differ, setup emits a warning with ahead/behind counts and still defaults to local `main`.
+Add contention labels when issues touch shared subsystems:
 
-### 2) Start Loop Sessions
+- `px:exclusive` — must run alone
+- `ck:<key>` — contention key; issues with same key won't run in parallel
+- `meta:tracker` — coordination issue, excluded from agent assignment
+
+### 2. Run a Batch
 
 ```bash
 ./orca.sh start 2 --runs 1
 ```
 
-`orca start` validates the local `br` workspace (`.beads/`) and fails fast when the queue workspace is missing/unhealthy or a non-running agent worktree is dirty.
-In default `assigned` mode, `start.sh` calls `plan.sh` to deterministically select launch assignments using queue labels (`px:exclusive`, `ck:*`, `meta:tracker`) and writes an audit artifact under `agent-logs/plans/YYYY/MM/DD/`.
-Before launch planning, `start.sh` runs a deterministic dependency sanity pass (`dep-sanity.sh`) and writes its artifact in the same plan directory.
-Default mode is `ORCA_DEP_SANITY_MODE=enforce`: launch is blocked when hazards are detected (`mixed parent-child+blocks`, active dependency cycles, active self/mutual blocking patterns). Use `ORCA_DEP_SANITY_MODE=warn` to log and proceed intentionally, or `ORCA_DEP_SANITY_MODE=off` to bypass the check.
-Launch logs include planned per-session issue IDs, held/skipped reason codes, and per-issue planner decisions, so reduced launch counts are explainable from a single run log.
-Default no-work behavior is drain mode: after a small retry budget for transient races, loops stop on sustained `no_work`.
-Use `--watch` to keep polling on `no_work` instead.
-`--continuous` is rejected when `ORCA_ASSIGNMENT_MODE=assigned`; use `--runs N` (recommended: `--runs 1`) or switch to `ORCA_ASSIGNMENT_MODE=self-select`.
+This assigns ready issues to agents via the planner, launches tmux sessions, and runs. Default mode is `assigned` with `--runs 1` (one issue per agent, then stop).
 
-Manual sanity run example:
+For continuous drain of a well-specified queue:
 
 ```bash
-./orca.sh dep-sanity --strict
+ORCA_ASSIGNMENT_MODE=self-select ./orca.sh start 2 --continuous
 ```
 
-Bounded mode:
+Or auto-relaunch waves:
 
 ```bash
-./orca.sh start 2 --runs 5
+./dispatch-loop.sh --max-slots 2 --poll-interval 20
 ```
 
-`--runs N` is an upper bound (maximum iterations per agent loop), not a requirement to consume all runs when earlier stop conditions apply.
-
-Watch/poll mode override:
+### 3. Check Status
 
 ```bash
-ORCA_ASSIGNMENT_MODE=self-select ./orca.sh start 2 --continuous --watch
+./orca.sh status          # human-readable
+./orca.sh status --json   # machine-readable
 ```
 
-### 3) Monitor
-
-```bash
-./orca.sh status            # quick mode (default)
-./orca.sh status --full     # detailed diagnostics
-./orca.sh status --quick --json                                  # machine-readable status payload
-./orca.sh status --quick --session-prefix "orca-agent-1-20260311T07"   # scope to matching sessions
-./orca.sh status --full --session-id "<session-id>"                     # scope to one exact session
-./orca.sh follow                                                        # merged live-awareness stream for managed+observed targets
-./orca.sh follow --poll-interval 1 --max-events 20                     # bounded follow sample for quick checks
-./orca.sh targets --json                                                # unified managed+observed switch targets
-./orca.sh jump "managed:<session-id>"                                   # switch to a managed target
-./orca.sh jump "observed:<id>"                                          # switch to an observed target
-./orca.sh observe add --id observed-a --lifecycle persistent --tmux-target dev:main
-./orca.sh observe list --json
-./orca.sh observe start --id observed-b --lifecycle ephemeral --tmux-target sandbox:main --cwd "$PWD" -- bash -lc "make test"
-bash tests/stress_monitor_registry_contention.sh                               # observed registry hardening stress target
-./orca.sh wait --session-id "<session-id>" --timeout 900 --json         # block for completion
-find agent-logs/sessions -type f | sort | tail -n 20
-tail -n 10 agent-logs/metrics.jsonl
-```
-
-`orca status` defaults to quick mode for frequent snapshot checks. Use `--full` when you need complete `br` diagnostics, worktree hygiene detail, and extended metrics sections. `--json` emits machine-readable status with `schema_version=orca.status.v1`.
-All status surfaces show scoped active run state (`state=running|idle`) and support session scoping with `--session-id` / `--session-prefix`.
-`orca follow` is the live-awareness path and emits merged managed+observed lifecycle events (`session_up`, `session_down`, `run_started`, `run_completed`, `run_failed`) as structured lines with stable field order: `<observed_at> mode=<mode> event_type=<event_type> session_id=<session_id> [run_id=<run_id>] target=<tmux_target>`.
-`orca targets` provides one normalized inventory for interactive switching across managed and observed targets (`id`, `mode`, `tmux_target`, `active`, `session_id`) and supports `--json`, `--session-id`, and `--session-prefix`.
-`orca jump <target>` resolves logical target ids (`managed:*`, `observed:*`) before explicit tmux fallback (`session` / `session:window`), then switches/attaches the client.
-`orca observe add/remove/list` manage only observed registry state; `observe remove` never kills tmux sessions. `orca observe start` is the lifecycle operation that creates detached tmux targets and registers them atomically, rolling back tmux session creation if registry write fails.
-`orca follow` is live-from-now only. Removed flags (`--replay-baseline`, `--session-id`, `--session-prefix`, `--render`) are rejected to keep the stream contract minimal.
-`orca monitor ...` and `orca status --follow ...` are removed command surfaces and should not be used in operator workflows.
-Observed registry loading is strict for `observe list/add/remove` and `observe start`: malformed JSON or invalid persisted `id`/`lifecycle`/`tmux_target` values are rejected as operational failures (no auto-repair).
-`tests/stress_monitor_registry_contention.sh` is the high-contention monitor registry hardening target (multi-writer + multi-reader churn with bounded timeouts).
-`orca wait` is the non-interactive blocking primitive for automation. It supports the same session scoping (`--session-id` / `--session-prefix`) and returns deterministic exit codes (`0` success, `2` timeout, `3` scoped failure, `4` invalid usage/config). In unscoped mode it waits only on sessions active at invocation (safe default for unattended `start -> wait` flows); use `--all-history` to include historical session artifacts. When no scoped sessions exist at invocation time, it returns immediate success with reason `no_scoped_sessions`.
-
-Minimal two-pane operator workflow:
-
-Pane A (foreground live-awareness stream):
-
-```bash
-./orca.sh follow
-```
-
-Pane B (interactive switch commands):
-
-```bash
-./orca.sh targets --json | jq -r '.[] | [.id, .mode, .tmux_target, .active] | @tsv'
-./orca.sh jump "managed:orca-agent-1-20260314T120000Z"
-./orca.sh jump "observed:observed-a"
-```
-
-Follow output example:
-
-```text
-2026-03-14T12:00:00Z mode=managed event_type=run_started session_id=managed-1 run_id=run-0001 target=orca-agent-1
-2026-03-14T12:00:02Z mode=observed event_type=session_up session_id=observed-a target=dev:main
-```
-
-### 4) Stop
-
-```bash
-./orca.sh stop
-```
-
-`orca stop` stops running Orca sessions (if any).
-
-## What the Loop Does vs What Agents Do
-
-Orca loop (`agent-loop.sh`) does:
-
-1. validate explicit `ORCA_BASE_REF` overrides, then prepare a per-run branch (`ORCA_BASE_REF`, otherwise `main`, then `origin/main`, then current branch; warns when `main` and `origin/main` diverge) and run one agent pass per iteration
-2. provide prompt + run artifact paths
-3. parse summary JSON and append metrics
-4. in default `drain` mode, stop on sustained `no_work` after `ORCA_NO_WORK_RETRY_LIMIT + 1` consecutive `no_work` results
-5. continue until an early stop condition is met (`MAX_RUNS` upper bound, no-work drain stop, or agent-requested stop)
-
-Agent does:
-
-1. choose issues and publish claims via `ORCA_QUEUE_WRITE_MAIN_PATH`
-2. implement and validate
-3. update issue states/notes/follow-up issues via `ORCA_QUEUE_WRITE_MAIN_PATH`
-4. merge/push via `ORCA_MERGE_MAIN_PATH`
-5. close issues via `ORCA_QUEUE_WRITE_MAIN_PATH`
-6. create follow-up issues when needed and write summary JSON
-
-Orca injects `ORCA_WITH_LOCK_PATH`, `ORCA_PRIMARY_REPO`, `ORCA_LOCK_SCOPE`, `ORCA_LOCK_TIMEOUT_SECONDS`, `ORCA_QUEUE_READ_MAIN_PATH`, `ORCA_QUEUE_WRITE_MAIN_PATH`, `ORCA_MERGE_MAIN_PATH`, `ORCA_BASE_REF`, `ORCA_NO_WORK_DRAIN_MODE`, and `ORCA_NO_WORK_RETRY_LIMIT` into each run so helper scripts can use stable absolute paths.
-`ORCA_PRIMARY_REPO` defaults to repo root and must be a valid git worktree; `ORCA_WITH_LOCK_PATH` defaults to `<repo-root>/with-lock.sh` and must be executable.
-
-## Operating Playbook
-
-### Daily Start
-
-```bash
-git pull --rebase
-"${ORCA_QUEUE_READ_MAIN_PATH}" --fallback error -- br ready --json >/dev/null
-./orca.sh start 2 --runs 1
-./orca.sh status
-```
-
-### Live Checks
-
-```bash
-"${ORCA_QUEUE_READ_MAIN_PATH}" --fallback error -- br ready --json
-br list --status in_progress --limit 50
-br list --status closed --sort updated --reverse --limit 20
-```
-
-Run-branch cleanup (dry-run by default):
-
-```bash
-./orca.sh gc-run-branches
-./orca.sh gc-run-branches --apply
-```
-
-`gc-run-branches` only prunes local `swarm/*-run-*` branches that are already merged into `main` and not active in any worktree or active agent tmux session.
-
-Attach to a session:
+To attach to a running agent session:
 
 ```bash
 tmux attach -t orca-agent-1
 # detach: Ctrl+b then d
 ```
 
-### Scale Up / Down
-
-Scale up:
-
-```bash
-./orca.sh start 3 --runs 1
-```
-
-Scale down cleanly:
+### 4. Stop
 
 ```bash
 ./orca.sh stop
-./orca.sh start 2 --runs 1
 ```
+
+### 5. Review
+
+Check run artifacts:
+
+```bash
+find agent-logs/sessions -name summary.json -newer /tmp/last-check | xargs jq '.result, .issue_id, .notes'
+tail -5 agent-logs/metrics.jsonl | jq '{result, issue_id, tokens_used}'
+```
+
+### 6. Cleanup
+
+```bash
+./orca.sh gc-run-branches          # dry-run
+./orca.sh gc-run-branches --apply  # delete merged run branches
+```
+
+## What Orca Does vs What Agents Do
+
+**Orca does:** validate environment, prepare run branches, render prompts, execute agents, parse summaries, append metrics, enforce drain policy, manage locks and merges.
+
+**Agents do:** claim issues, implement changes, run validation, update queue state, merge code, create follow-up issues, write summary JSON.
+
+## Queue Safety
+
+- Queue mutations go through `queue-write-main.sh` (lock-guarded on `main`).
+- Merges go through `merge-main.sh` (lock-guarded, rejects `.beads` in source branches).
+- Run branches are local transport state; they are not pushed to origin.
+- Both operations share one writer lock to serialize all `main` writes.
 
 ## Failure Handling
 
-1. Agent requests stop (`loop_action=stop`):
-   - expected for no-work or explicit shutdown conditions
-   - inspect latest `summary.json` / `summary.md` under `agent-logs/sessions/.../runs/...`, then restart if needed
-2. Claim publication failures/races:
-   - expected signal when multiple agents/machines compete for same issue
-   - winning claim is the one successfully published to `main`
-   - losing agent should re-import queue state and select another issue
-3. Merge/push failures:
-   - agent-owned; inspect logs and issue notes, then restart sessions as needed
-   - `merge-main.sh` enforces dirty-tree precheck and rejects source branches containing `.beads/` changes
-   - `merge-main.sh` performs merge-failure cleanup (`merge --abort` / reset path) so primary repo does not stay conflicted
-4. Immediate agent command failures:
-   - verify CLI auth/config and `AGENT_COMMAND`
-5. Run branch setup failure due dirty worktree:
-   - check `git -C worktrees/agent-N status --short`
-   - inspect for leftover `.beads/` or partial code edits
-   - commit/stash/discard changes in that worktree, then rerun `./orca.sh start`
-6. Protocol drift (deviations from queue/merge protocol):
-   - inspect `summary.json`/`summary.md` notes and `run.log` for justification
-   - if repeated and costly, record incident and reopen constraint strategy per `docs/decision-log.md` DL-001
+1. **Agent requests stop** — inspect latest `summary.json`, restart if needed.
+2. **Claim races** — expected when multiple agents compete. Losing agent retries.
+3. **Merge failures** — inspect logs. `merge-main.sh` auto-cleans merge state.
+4. **Dirty worktree on start** — `git -C worktrees/agent-N status --short`, then commit/stash/discard.
 
-## Safety Rules
+## Runtime Knobs
 
-1. avoid destructive git commands during active swarm sessions
-2. avoid manually editing multiple agent worktrees at once unless deliberate
-3. keep `br` queue state as source of truth for issue state and dependencies
-4. keep queue writes in `ORCA_QUEUE_WRITE_MAIN_PATH` and merges in `ORCA_MERGE_MAIN_PATH` (both lock-guarded)
+Key knobs (see README.md for full list):
 
-## Operator Checklist
+- `AGENT_MODEL` — model for agent command (default `gpt-5.3-codex`)
+- `AGENT_REASONING_LEVEL` — optional reasoning effort level
+- `MAX_RUNS` — upper bound on runs per agent loop
+- `ORCA_ASSIGNMENT_MODE` — `assigned` (default) or `self-select`
+- `ORCA_NO_WORK_DRAIN_MODE` — `drain` (default) or `watch`
 
-Before ending a session:
+## Documentation
 
-1. active failures are understood and noted
-2. blockers are reflected in issue notes
-3. important follow-up work is represented in `br` issues
-4. local repo state is synchronized and pushed per normal repository workflow
+- `README.md` — commands and configuration reference
+- `docs/design.md` — design principles
+- `docs/ecosystem.md` — broader tool ecosystem (orca, watch, lore)
+- `docs/artifact-contract.md` — output format specification
+- `docs/decision-log.md` — architecture decisions
+- `AGENT_PROMPT.md` — agent contract

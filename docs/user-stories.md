@@ -1,20 +1,266 @@
-This document contains narratives and stories about how users currently work and how they like to work and what friction they encounter in their workflow.
+# Usage Scenarios
 
-I work on multiple persistent projects from time to time. Pretty much whenever an idea comes to me about the project, I will switch to that agents window (i run a single tmux session with multiple windows) enter my thoughts, have a brief dialogue about it then switch back. Sometimes these interactions are just about noting down some information or an idea. Other times it is to start some long running work.
+Concrete workflow narratives for the orca/watch/lore ecosystem.
+See `docs/ecosystem.md` for tool definitions, boundaries, and design principles.
 
-I have many transient relatively small and short lived tasks. Do something specific, perhaps after a little knowledge gathering and orientation first. Then kill that agent session. Perhaps write up a little note about what was done.
+## Operator Profile
 
-Then i have some major projects. At a given time I am usually working on core development for one of them, and then doing maintainance, support, or small feature development for multiple others. For these it is important that the agent sessions have more context about the project and the context we are working in. In a new project I usually have an agent look through it, write some documentation and write down the project structure. Then I ask another session to gather context about the project and the specific thing we are doing, and then we can get to work. This usually takes a significant amount of time, and when an agent session is done most of that is lost. I don't want the next agent session to have all the context available, but I don't want all of it to be lost. I would like if most of it could be queryable/accessible to the agent so they can find it when they need it, but not directly inject it into their context.
-I usually create a makeshift system consisting of markdown documentation and an index file that I tell the agent about.
+Single developer. Works on one primary project at a time with active development, plus maintenance and small features across several other projects. Runs multiple agent sessions in parallel — both batch execution (orca) and interactive conversations (pi in tmux sessions). Manages cognitive load by keeping things up to date throughout the day rather than batching review at the end.
 
-Project and general knowledge management for agents is a large problem, and something I have not been able to solve reliably. But I would like to atleast have the agent be aware of what we are doing, the goal, how to approach it, what we have already done/tried, and some general information about the project. Basically I just want to be able to hit the ground running.
+Preferences: keyboard-driven (emacs background), no desktop notifications or sounds, prefers manual polling when focused and a visible notification buffer when not. Maintains a chronological log in emacs organized by day and project.
 
-With all of this, I am usually running quite a few agent sessions in parallel, and it is easy to loose track. Often one or more of them is doing a long running task, and I would like to return to that session as soon as possible after it is done.
+Environment: single machine at a time, synced across machines via git. All agent activity runs in tmux sessions (one session per agent/task/project). One "home" session for watch and control.
 
-I have a chronological log file that I maintain in emacs. I create a heading for every day, and subheadings for every project i work on that day. Then I write down my plans, what i learn, what I try, what I accomplished.
-The chronological log is good for writing but terrible for reading, so i made a package that syncs the project headings to another document where each project is a heading with subheadings for each day. Thus I am able to gather all the logs for a single project. Still in chronological order though. I should note there are currenly two heading levels in the project file, and I am not quite consistent in using them. Sometimes I have a top level heading for a project and subheadings for features. Other times I have a top level heading for a collection of projects and sub headings for each project.
-This may be wishful thinking, but I think it would be useful if I could add functionality to my emacs package, and some data and metadata to my project file and then pass some of it in a structured format when i start a new agent session for a project. I am not yet sure how this would work, but the log seems like a valuable source of information that is currently not utilised for agents at all.
+## Tmux Topology
 
-Based on the current implementation (Commit 57af62a), I have some thoughts on how I might like to use this initially. 
-I would like the main and persistent entry point, and main point of interaction to be a single tmux window with two panes. One pane has the foreground monitoring process running, and the other pane is an interactive terminal session that allows me to use orca command. Commands that will initially just allow me to switch to the running agents (wrapper around tmux commands). But may later expand into richer commands and further interactions. 
+Everything is a tmux session:
 
+- **Home session**: where watch runs (TUI mode). The operator's primary location.
+- **Project sessions**: interactive pi conversations, one per project or task.
+- **Orca agent sessions**: created by orca per agent run (naming convention: `orca-agent-N-<timestamp>`).
+- **Ad-hoc sessions**: transient tasks, one-off investigations.
+
+The operator navigates between sessions. Watch provides awareness of all sessions and shortcuts to jump between them. Returning "home" brings the operator back to the global view.
+
+## Orca Scope
+
+Orca is per-project. Each project repo that uses orca has its own queue, worktrees, agent loops, and artifacts. Orca does not span projects. When the operator wants batch execution on project X, they run orca commands in project X's repo.
+
+Watch is the tool that provides cross-project awareness by monitoring all tmux sessions — including multiple orca instances running in different repos.
+
+---
+
+## 1. Starting the Day
+
+The operator opens a terminal. They start or attach to their home tmux session. Watch is running in TUI mode, showing the state of all tmux sessions — which ones exist, which are active, which have new output since last seen.
+
+If orca agents were left running overnight (rare but possible), watch shows their completion state. The operator sees at a glance: everything finished, or something needs attention.
+
+The operator may switch to a project session and talk to an agent about the day's plan. They review their emacs log for yesterday's notes. They decide which project gets primary attention.
+
+**What matters:** Time from "sit down" to "know what's happening" should be seconds.
+
+## 2. Planning and Breaking Down Work
+
+The operator is in a project session (pi). They discuss a feature or change with the agent. This is iterative — back and forth about design, tradeoffs, approach. The conversation produces:
+
+- A plan or spec (markdown, stored in the project repo)
+- A set of concrete tasks broken down from the plan
+- Issues created in the br queue, with dependencies and contention labels where needed
+
+The queue is shallow — typically under 20 issues. The operator prefers small, well-specified batches over deep queues, because agent-implemented work can deviate when there are too many issues to track.
+
+**What matters:** The quality of task specification drives execution quality. This step is where leverage comes from.
+
+## 3. Running a Batch
+
+The operator starts orca from their project session or from a command pane:
+
+```
+cd /path/to/project
+orca start 2 --runs 1
+```
+
+Orca assigns issues to agents, launches tmux sessions, and runs. The operator switches back to watch (home session) to see the new orca sessions appear. Watch shows the agent sessions as active.
+
+Typical batch: 1-2 agents, 1-3 runs each. Small and bounded. The operator wants to review results before running more.
+
+Sometimes, for well-specified queues, the operator runs a continuous drain:
+
+```
+ORCA_ASSIGNMENT_MODE=self-select orca start 2 --continuous
+```
+
+Or uses the dispatch loop to auto-relaunch waves:
+
+```
+./dispatch-loop.sh --max-slots 2 --poll-interval 20
+```
+
+**What matters:** Starting a batch should be one command. The operator should be able to start it and immediately return to other work.
+
+## 4. Monitoring While Working
+
+The operator is in their home session with watch running. They are primarily working on something else — an interactive conversation in another project session, reading code, thinking.
+
+Watch's TUI shows the state of all sessions. When an orca agent finishes a run, watch updates its display. The operator glances at it when they choose to, not when forced to.
+
+When the operator wants to actively monitor:
+- They look at the watch TUI which shows session states and recent events.
+- They see an agent has completed — they press a key to jump to that session and review the output.
+- They jump back to home when done.
+
+When the operator is deeply focused and does not want to look at watch:
+- They run a command to poll: `watch status` (or similar) — a one-line answer to "is anything done?"
+- They return to what they were doing.
+
+Events accumulate in watch's notification buffer. The operator can scroll through them when they have attention to spare.
+
+**What matters:** Monitoring must not interrupt focus. The operator pulls information when ready; the system does not push.
+
+## 5. Reviewing Completed Work
+
+An orca batch has finished. The operator reviews:
+
+1. Quick check via watch or `orca status` — did agents succeed, fail, or get blocked?
+2. For each completed agent run, the operator may:
+   - Jump to the agent session to see the final output
+   - Have an agent in a project session read the run summaries and code changes
+   - Test the actual behavior of the implemented changes themselves
+
+The operator's review is primarily behavioral — they run the system and see if it does what they expected. Detailed code review is delegated to agents.
+
+If something is wrong, the operator creates a new issue (via conversation with an agent) to fix or revert it, and runs another batch.
+
+**What matters:** The review → fix → re-run cycle should be fast. Creating a corrective issue and re-running orca should be minutes, not an ordeal.
+
+## 6. The Test-and-Fix Cycle
+
+After a batch of feature work, the operator tests the system. They do this interactively, with agent help. Testing reveals:
+
+- Bugs (things that are broken)
+- Unintended behavior (things that work but are wrong)
+- Refinements (things that work but could be better)
+- Reversions (things that should be undone entirely)
+
+Each of these becomes an issue in the queue — created through conversation with an agent. The operator then runs another orca batch to address them.
+
+This cycle repeats: implement → test → discover → issue → implement. The queue never gets very deep because each cycle produces a small batch.
+
+**What matters:** The feedback loop between "discover a problem" and "an agent is working on it" should be tight. Issue creation through conversation should be natural, not ceremonial.
+
+## 7. Switching Projects
+
+The operator is working on project A but needs to handle something on project B — a bug report, a quick feature, a maintenance task.
+
+They switch to project B's tmux session (or create one). If project B has queued work, they run orca in project B's repo:
+
+```
+cd /path/to/project-b
+orca start 1 --runs 1
+```
+
+Watch, running in the home session, now shows sessions for both project A and project B. The operator can see at a glance which project has active agents and which has finished.
+
+The operator addresses the project B issue, then switches back to project A. Watch continues monitoring both.
+
+**What matters:** Project switching should be a tmux session switch, not a context-loading ceremony. Watch should make it obvious what's happening across all projects simultaneously.
+
+## 8. Quick Ideas and Notes
+
+The operator has an idea about project C while working on project A. They switch to project C's session (or create one), type the idea to an agent, have a brief exchange, maybe create an issue. Then they switch back to project A.
+
+This interaction is seconds to minutes. No setup, no orientation. Just capture the thought and return.
+
+**What matters:** The cost of capturing an idea must be near zero. If it's high, ideas get lost.
+
+## 9. Ad-Hoc Tasks
+
+The operator needs to do something specific and short-lived: investigate a dependency, test a configuration, run a benchmark. They create a tmux session, run an agent or script in it, and want to know when it's done.
+
+Watch shows this session alongside everything else. When it finishes, the operator sees it in the notification buffer or the session state display.
+
+When done, the operator kills the session. Watch notices it's gone.
+
+**What matters:** Ad-hoc sessions should not require registration or ceremony. Watch discovers tmux sessions automatically.
+
+## 10. Ending the Day
+
+The operator has been keeping their emacs log up to date throughout the day. There is no large end-of-day review burden.
+
+They check watch one last time: are any agents still running? If so, they either wait for completion or stop them. They make any final notes in their log. They shut down.
+
+The project state is committed and pushed so it's available on their other machine if needed.
+
+**What matters:** No end-of-day ceremony beyond what's already been done throughout the day.
+
+---
+
+## Watch-Specific Scenarios
+
+### W1. TUI Mode (Primary)
+
+Watch runs in a tmux pane in the home session. It displays:
+
+- All tmux sessions, grouped or labeled by type (orca agent, project, ad-hoc)
+- Current state of each session (active/idle/finished/gone)
+- Recent events (session started, run completed, run failed)
+
+Keyboard shortcuts allow the operator to:
+- Jump to a session (tmux switches to that session)
+- Filter/search sessions
+- Scroll through the event/notification buffer
+
+The TUI updates live but does not aggressively redraw or flash. Changes appear; the operator notices when they choose to look.
+
+### W2. CLI Mode (Scripting and Polling)
+
+Watch can be invoked as a CLI for quick answers:
+
+```
+watch status              # one-line summary: 3 active, 2 finished, 0 failed
+watch list                # all sessions with state
+watch list --json         # machine-readable
+```
+
+This is for when the operator is in another pane or session and wants a quick answer without switching to the TUI.
+
+### W3. Cross-Project Awareness
+
+Watch discovers all tmux sessions. It does not need to know about orca specifically — it monitors tmux sessions, and orca agent sessions happen to be tmux sessions.
+
+However, watch can recognize orca sessions by naming convention and display them with enriched information (run state, issue ID, last summary result) by reading orca's artifact directories.
+
+For non-orca sessions, watch shows basic tmux state (exists, has recent output, etc.).
+
+### W4. Session Jump and Return
+
+The operator is in the home session looking at watch. They see an orca agent has finished. They press a key (or run `watch jump <target>`), and tmux switches to that agent's session. They review the output.
+
+To return, the operator switches back to the home session (standard tmux navigation, or a watch-provided shortcut).
+
+---
+
+## Lore-Specific Scenarios (Research Phase)
+
+These scenarios describe desired outcomes, not committed designs.
+
+### L1. Resume Work Next Day
+
+The operator sits down and starts a new agent session for project A. The agent immediately knows: what the project is, what we're currently working on, what was accomplished yesterday, what's queued, and what the open questions are. The operator did not have to brief the agent manually.
+
+### L2. New Project Orientation
+
+The operator points lore at a new project repo. Lore examines the codebase, existing documentation, and project structure. It produces a structured knowledge base that future agent sessions can query. The operator reviews and corrects it.
+
+### L3. Session Knowledge Capture
+
+An agent session ends after significant investigation or discussion. The knowledge gained — about the codebase, about design tradeoffs, about what was tried and failed — is captured in a form that future sessions can access. Not injected into their context, but queryable when relevant.
+
+### L4. Emacs Log Integration
+
+The operator's chronological log contains project-specific entries with plans, observations, and decisions. Lore can read the project-view of this log and surface relevant recent entries when an agent starts work on that project.
+
+---
+
+## Anti-Scenarios (What the Tools Should Not Do)
+
+### A1. Interrupt Focus
+
+No tool should push information at the operator. No desktop notifications, no sounds, no modal alerts. The operator pulls information when ready.
+
+### A2. Require Ceremony
+
+Starting a batch, checking status, jumping to a session, capturing an idea — these should be single commands or keystrokes. Multi-step workflows for routine operations indicate a design problem.
+
+### A3. Lose Track of Scope
+
+Orca agents should not add unbounded functionality beyond their assigned issue. The task specification must constrain scope. When agents consistently expand scope, the problem is in how tasks are defined, not in the execution engine.
+
+### A4. Create End-of-Day Burden
+
+The system should support keeping things up to date throughout the day. If the operator must batch-review, batch-document, or batch-groom at end of day, the workflow is failing.
+
+### A5. Require Global Coordination
+
+Each orca instance is independent. Watch observes without controlling. Lore provides context without mandating structure. No tool should require the others to function.

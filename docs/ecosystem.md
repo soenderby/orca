@@ -12,6 +12,16 @@ Three tools, each attacking one friction point. Each independently useful. Toget
 
 See `docs/user-stories.md` for concrete usage scenarios that drive design decisions.
 
+## Core Concept: Agent-Centric Model
+
+The ecosystem is built around **agents**, not sessions. An agent is a persistent identity — defined by its priming context — that may have multiple concurrent instances (tmux sessions). The agent is the conceptual unit the operator cares about. Sessions are infrastructure.
+
+This model unifies orca batch workers and interactive conversations. An orca agent is just an agent that happens to get its sessions launched by orca. An interactive pi session is just an agent that happens to get its sessions launched by the operator. The difference is in tooling support, not in kind.
+
+Agent identity is defined by priming context: the AGENTS.md file, the initial prompt, the project, the files the agent reads at session start. Two sessions are "the same agent" when they start from the same priming. Some agents have strong identity (heavily primed, consistent role). Others are lightweight (a throwaway task agent with minimal priming).
+
+The identity registry is currently implemented in watch (`internal/identity`) and is planned for extraction into lore when that tool is built. See `docs/decision-log.md` DL-003 for the full rationale.
+
 ## The Tools
 
 ### Orca — Batch Execution Engine
@@ -20,25 +30,25 @@ Orca takes a queue of issues and runs agents against them in parallel with safet
 
 **Boundary:** Queue in, completed work and structured artifacts out. Orca is finished when the queue is drained and artifacts are written.
 
-**Scope:** Per-project. Each project repo that uses orca has its own queue, worktrees, agent loops, and artifacts. Orca does not span projects.
+**Scope:** Per-project. Each project repo that uses orca has its own queue, worktrees, agent loops, and artifacts. Orca does not span projects. Cross-project operation is supported via `ORCA_HOME` — orca's scripts can live in one location and operate on any target repo.
 
-**Language:** Bash. The execution layer works and composes naturally with its dependencies (git, tmux, br, codex).
+**Language:** Bash (current). Go rewrite in progress — see `docs/go-rewrite-plan.md` and `docs/decision-log.md` DL-004.
 
-**Current state:** Working. Needs pruning of operator-cockpit surface that does not belong in a batch engine.
+**Current state:** Working. Pruned to batch-engine scope. Cross-project operation enabled via `ORCA_HOME`. Go rewrite planned and designed.
 
 ### Watch — Operator Supervision
 
-Watch gives the operator real-time awareness of all agent activity across projects — orca batch sessions, interactive conversations, ad-hoc tasks. It provides both a persistent TUI for continuous awareness and a CLI for quick polling and scripting.
+Watch gives the operator real-time awareness of all agent activity across projects. It builds an agent-centric view from tmux sessions, project config, agent identities, and orca artifacts.
 
 **Boundary:** Read-only consumer of tmux state and orca artifacts. Watch does not mutate execution state — it observes and navigates.
 
-**Scope:** Global. Watch monitors all tmux sessions on the machine. It recognizes orca agent sessions by naming convention and enriches them with artifact data. Non-orca sessions are shown with basic tmux state. This is how the operator gets cross-project awareness — watch is the global view, orca stays scoped to one project.
+**Scope:** Global. Watch monitors tmux sessions that match registered agent identities. Unmatched tmux sessions are invisible to watch. This is how the operator gets cross-project awareness — watch is the global agent view, orca stays scoped to one project.
 
-**Interface:** Two modes — a persistent TUI that stays running in the home session, and a stateless CLI for scripting and quick polling. The TUI provides live state, an event/notification buffer, and keyboard shortcuts for session navigation. The CLI provides machine-readable snapshots.
+**Interface:** Two modes — a persistent TUI that stays running in the home session, and a stateless CLI for scripting and quick polling. The TUI provides live state with zoom-based hierarchical navigation (overview → agent detail → instance detail). The CLI provides machine-readable snapshots.
 
-**Language:** Go. Single binary, no runtime dependencies. Good concurrency primitives for the "poll multiple sources, merge events" workload. Also serves as a test of whether moving beyond bash provides meaningful benefit for this class of tool.
+**Language:** Go. Single binary, no runtime dependencies.
 
-**Current state:** Prototyped inside Orca as follow, observe, targets, jump, wait, and heavy status. Needs extraction into a standalone binary.
+**Current state:** Working. Agent-centric snapshot pipeline, event diffing, CLI and TUI implemented. See the [watch repo](https://github.com/soenderby/watch) for design docs and implementation.
 
 ### Lore — Agent Context and Knowledge
 
@@ -48,7 +58,7 @@ Lore manages the accumulated knowledge that makes agents productive: project str
 
 **Language:** TBD.
 
-**Current state:** Unsolved. The problem is understood but the approach is not yet clear. Research phase. Working on orca and watch may clarify what good context injection looks like through accumulated operational experience.
+**Current state:** Unsolved. The agent identity registry (currently in watch's `internal/identity` package) is the first concrete seed — it will be extracted into lore when the tool is built. The approach for knowledge capture and context injection is not yet clear. Operational experience from orca and watch continues to inform the design space.
 
 ## Tmux Topology
 
@@ -59,15 +69,15 @@ Everything is a tmux session:
 - **Orca agent sessions**: created by orca per agent run (naming convention: `orca-agent-N-<timestamp>`).
 - **Ad-hoc sessions**: transient tasks, one-off investigations.
 
-The operator navigates between sessions. Watch provides awareness of all sessions and shortcuts to jump between them. Returning to the home session brings the operator back to the global view.
+The operator navigates between sessions. Watch provides awareness of agent-associated sessions and shortcuts to jump between them. Tmux sessions not associated with a registered agent identity are invisible to watch. Returning to the home session brings the operator back to the global agent view.
 
 ## How They Compose
 
 ```
-    lore prepares context
+    lore prepares agent context
          │
          ▼
-    orca executes agents with that context
+    orca executes agent instances with that context
          │
          ▼
     orca produces structured artifacts
@@ -77,17 +87,20 @@ The operator navigates between sessions. Watch provides awareness of all session
     artifacts       from artifacts
          │                    │
          ▼                    │
-    operator gains            │
-    awareness & intervenes    │
+    operator sees agents      │
+    and their state,          │
+    jumps to instances        │
                               │
               ┌───────────────┘
               ▼
-    next session starts better
+    next agent session starts better
 ```
 
 **Artifacts are the integration surface.** Tools communicate through files and CLI output, not shared libraries or IPC. Each tool can evolve independently as long as it respects the artifact contracts.
 
-The artifact contract is owned by the producer. Orca defines its output specification (session log hierarchy, summary JSON schema, metrics format) in a dedicated contract document. Watch and lore are consumers and reference that contract. If a shared package is extracted later, contract ownership can move there.
+**Agent identity is the shared concept.** Orca creates agent instances. Watch displays agents and their instances. Lore manages agent knowledge. The identity registry — currently in watch, planned for extraction — is the shared data that connects them.
+
+The artifact contract is owned by the producer. Orca defines its output specification (session log hierarchy, summary JSON schema, metrics format) in `docs/artifact-contract.md`. Watch and lore are consumers and reference that contract.
 
 ## Ecosystem Design Principles
 
@@ -103,7 +116,7 @@ Tools integrate by reading each other's file outputs and CLI responses. The sess
 Watch does not start or stop orca. Lore does not launch agents. Each tool manages its own processes. Composition happens through the operator's workflow, not through tool coupling.
 
 **4. Shared abstractions are extracted, not designed upfront.**
-When two tools need the same capability (tmux session queries, artifact path resolution, git worktree management), extract it after both tools exist and the shared need is proven. Not before.
+When two tools need the same capability (tmux session queries, artifact path resolution, agent identity), extract it after both tools exist and the shared need is proven. Not before.
 
 **5. CLI is the universal interface.**
 Every tool is CLI-first. Tools can call each other via CLI. This keeps the integration surface inspectable and scriptable.
@@ -114,29 +127,43 @@ No daemons, no databases, no message queues unless a concrete need demands them.
 **7. No interruptions.**
 No tool pushes information at the operator. No desktop notifications, no sounds, no modal alerts. The operator pulls information when ready. Notification buffers accumulate events; the operator reads them on their own schedule.
 
+**8. Go is the ecosystem language.**
+Validated through the watch build. Go provides: single-binary deployment, type-safe data models, clean package boundaries, fast tests, and natural composition with CLI tools. Orca is being rewritten from bash to Go (see DL-004).
+
 ## Sequencing
 
 ### Phase 1: Prune Orca ✓
 
-Completed. Deleted operator-cockpit surface (follow, observe, targets, jump, wait, monitor — scripts, libs, tests, docs). Rewrote `status.sh` to minimal batch-engine reporting (1,748 → 234 lines). Rewrote README (649 → 126 lines) and OPERATOR_GUIDE (353 → 134 lines). Extracted artifact contract to `docs/artifact-contract.md`.
+Completed. Deleted operator-cockpit surface (follow, observe, targets, jump, wait, monitor). Rewrote status to minimal batch-engine reporting. Consolidated documentation. Extracted artifact contract.
 
-### Phase 2: Build Watch
+### Phase 2: Build Watch ✓
 
-- Go binary, separate repository.
-- Start with two capabilities: live session state display (TUI) and CLI status polling.
-- Consume orca's existing artifact format and tmux state directly.
-- Do not change orca to serve watch's needs. If watch cannot work with orca's existing output, that is a watch problem.
-- Add session jump (keyboard shortcut in TUI, `watch jump` in CLI) once the display layer works.
-- Add notification buffer once jump works.
+Completed. Go binary in separate repository. Agent-centric data model with snapshot pipeline:
 
-### Phase 3: Evaluate and Extract
+- `internal/model` — Snapshot, Agent, Instance, Run, Event types
+- `internal/identity` — Agent identity registry (global + project-local, planned for extraction to lore)
+- `internal/snapshot` — SnapshotBuilder assembles snapshots from tmux + artifacts + identity
+- `internal/events` — Snapshot diffing and per-agent event store
+- `internal/poller` — Periodic snapshot production
+- `internal/tui` — Zoom-based hierarchical TUI (overview → agent detail → instance detail)
 
-- Identify what is genuinely duplicated between orca and watch (tmux queries, artifact path resolution, etc.).
-- Extract shared abstractions into a form both can consume.
-- Decide whether orca benefits from language migration based on real evidence from the watch build.
+CLI: `watch list`, `watch status`, `watch project add/remove/list`. TUI: `watch` with no args.
+42 tests across 6 packages.
 
-### Phase 4: Lore
+Key insight from this phase: the agent-centric model (agents, not sessions) emerged during watch design and became a foundational concept for the ecosystem. See DL-003.
 
-- The orientation/context problem is the highest-value unsolved problem but also the least understood.
-- The emacs chronological log integration is a concrete starting thread when ready.
-- Operational experience from phases 1–3 will inform what good context injection means in practice.
+### Phase 3: Rewrite Orca in Go
+
+In progress. See `docs/go-rewrite-plan.md` for the full plan.
+
+The watch build validated Go as the right language for the ecosystem. Orca's bash is the remaining barrier to shared abstractions between tools. The rewrite follows a test-first, incremental approach: pure logic first, then tool wrappers, then core operations, then CLI.
+
+This replaces the original Phase 3 ("evaluate and extract") — the evaluation is complete, and the answer is to rewrite rather than extract piecemeal.
+
+### Phase 4: Extract Shared Packages
+
+After orca is in Go, identify genuinely shared code between orca and watch (tmux management, artifact parsing, agent identity) and extract into shared packages or a shared module. This was the original Phase 3 intent, deferred until both tools are in the same language.
+
+### Phase 5: Lore
+
+The orientation/context problem is the highest-value unsolved problem but also the least understood. The agent identity registry (currently in watch) is the first concrete seed. The emacs chronological log integration is a concrete starting thread when ready. Operational experience from earlier phases continues to inform what good context injection means.

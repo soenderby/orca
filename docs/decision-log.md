@@ -148,6 +148,115 @@ Implement in stages:
 
 ---
 
+## DL-003 — Agent-centric model: agents, not sessions, as the base unit
+
+- **Date:** 2026-03-22
+- **Status:** Active
+- **Owner:** Operator
+
+### Decision
+
+Adopt agents — persistent identities defined by priming context — as the fundamental unit across the ecosystem. Tmux sessions are instances of agents, not first-class entities. Tmux sessions not associated with a registered agent identity are invisible to watch.
+
+### Context
+
+During watch design, the initial data model was session-centric: tmux sessions were the atomic unit, some enriched with orca data, others standalone. This created an awkward split between "orca sessions" (rich) and "other sessions" (minimal), and didn't match how the operator actually thinks about work.
+
+The operator thinks in terms of ongoing collaborations (agents), not individual terminal sessions. The same agent (e.g., "librarian" in ai-resources) may span many sessions. Orca batch workers are agent instances, not unique entities. Interactive pi conversations about the same project are the same agent in different sessions.
+
+### Options considered
+
+1. **Session-centric (original)** — tmux sessions are the base unit, optionally enriched. Simple but doesn't match the mental model.
+2. **Agent-centric with session grouping** — agents own sessions. Requires identity registry but matches the operator's mental model.
+3. **Hybrid with auto-discovery** — every tmux session is an agent. Too broad; captures sessions that have nothing to do with agents (htop, builds, etc.).
+
+### Why this option
+
+Option 2 was chosen because:
+1. It matches how the operator thinks about work.
+2. It unifies orca and non-orca work under a single model.
+3. It creates a natural anchor point for lore (knowledge belongs to agents, not sessions).
+4. It reduces special-casing — orca agents are just agents with richer tooling, not a different category.
+5. Ignoring unmatched sessions keeps watch focused on agents rather than being a general tmux manager.
+
+### Risks accepted
+
+- Agent identity requires explicit registration (ceremony for every agent).
+- Non-orca session matching by working directory can produce false positives.
+- Global agents (no project association) cannot be automatically matched to sessions yet.
+- The identity registry is an additional data structure that must be maintained.
+
+### Revisit triggers
+
+1. The ceremony of registering agents becomes a significant friction that prevents adoption.
+2. Working-directory matching produces persistent false positives that degrade watch's usefulness.
+3. The agent model creates complexity without measurable benefit over a simpler session list.
+
+### Disconfirming evidence
+
+The agent-centric model is disconfirmed if operators consistently think in sessions rather than agents, or if the identity registry is more burden than benefit.
+
+### Next-step implication
+
+Agent identity is currently implemented in watch's `internal/identity` package. When lore is built, this package is extracted into lore and becomes the authoritative identity registry for the ecosystem.
+
+---
+
+## DL-004 — Rewrite orca from bash to Go
+
+- **Date:** 2026-03-22
+- **Status:** Active
+- **Owner:** Operator
+
+### Decision
+
+Rewrite orca incrementally from bash to Go, using a test-first approach. See `docs/go-rewrite-plan.md` for the implementation plan.
+
+### Context
+
+Orca is 5,488 lines of bash across 19 scripts. The execution layer works and all 9 regression tests pass. The question is whether the cost of rewriting is justified by the benefit.
+
+The watch build (Phase 2) served as a controlled evaluation of Go for this class of tool. Watch was built from scratch as a Go binary: 4,227 lines, 42 tests, clean package structure, type-safe data model. The experience demonstrated clear benefits over bash for complex stateful logic, JSON processing, and testing.
+
+### Options considered
+
+1. **Stay in bash.** No rewrite cost. But: no shared abstractions with watch, JSON processing via jq subshells, no type safety, testing requires elaborate bash harnesses.
+2. **Full Go rewrite (big bang).** Rewrite everything at once. High risk, long period of instability.
+3. **Incremental Go rewrite (chosen).** Build Go binary alongside bash scripts. Migrate commands one at a time. Validate against existing regression tests. Cut over when complete.
+4. **Partial rewrite (core in Go, helpers in bash).** Lower cost but creates a mixed runtime that is harder to understand.
+
+### Why this option
+
+Option 3 (incremental rewrite) was chosen because:
+1. The watch build proved Go works for this domain: type-safe models, clean packages, fast tests, single binary.
+2. Shared abstractions between orca and watch require a common language. Bash cannot produce libraries that Go consumes.
+3. The incremental approach means orca is never broken — both implementations coexist during transition.
+4. Existing regression tests define the expected behavior — they are the rewrite specification.
+5. `agent-loop.sh` (1,175 lines) and `start.sh` (656 lines) are painful in bash: complex state machines, 30-argument printf for tmux env injection, JSON parsing via jq subshells.
+
+### Risks accepted
+
+- Rewrite is always more work than expected.
+- Opportunity cost: time spent rewriting is time not spent building features.
+- The bash implementation works; the rewrite may introduce new bugs.
+- Some bash idioms (flock, process management) may be more natural in bash than Go.
+
+### Revisit triggers
+
+1. The rewrite stalls or produces a Go implementation that is more complex than the bash it replaces.
+2. Go proves awkward for the process-management and git-interaction patterns that dominate orca.
+3. The shared-abstraction benefit does not materialize (orca and watch don't actually share code).
+
+### Disconfirming evidence
+
+The rewrite is disconfirmed if the Go implementation requires significantly more code for the same behavior, or if the testing and maintenance experience is not measurably better than bash.
+
+### Next-step implication
+
+Follow the plan in `docs/go-rewrite-plan.md`. Phase 1 (pure logic) first, then primitives, then core operations, then CLI, then validation and cutover.
+
+---
+
 ## Entry template
 
 Use this template for new decisions:

@@ -32,6 +32,22 @@ br create "Fix the widget parser" --description "..." --priority 1
 
 See `OPERATOR_GUIDE.md` for the full operating playbook.
 
+## Cross-Project Operation
+
+Orca can operate on any git repo, not just the repo it is installed in. Use `ORCA_HOME` or invoke orca by its full path:
+
+```bash
+cd /path/to/other-project
+/path/to/orca/orca.sh doctor
+/path/to/orca/orca.sh start 1 --runs 1
+```
+
+The target repo needs:
+- A `br` queue workspace (`br init && br config set id.prefix <prefix>`)
+- Optionally, an `ORCA_PROMPT.md` tailored to the project (orca's default is used as fallback)
+
+Orca resolves scripts relative to `ORCA_HOME` (defaults to the directory containing `orca.sh`). The target repo provides worktrees, queue state, and agent logs.
+
 ## Commands
 
 | Command | Purpose |

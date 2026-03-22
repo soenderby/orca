@@ -107,6 +107,26 @@ tail -5 agent-logs/metrics.jsonl | jq '{result, issue_id, tokens_used}'
 - Run branches are local transport state; they are not pushed to origin.
 - Both operations share one writer lock to serialize all `main` writes.
 
+## Cross-Project Operation
+
+Orca can operate on any git repo. To set up a new project:
+
+```bash
+# In the target repo:
+cd /path/to/other-project
+br init
+br config set id.prefix myproject
+
+# Optionally create a project-specific prompt:
+# Copy and adapt ORCA_PROMPT.md from the orca repo, or let orca use its default.
+
+# Run orca from outside its own repo:
+/path/to/orca/orca.sh doctor
+/path/to/orca/orca.sh start 1 --runs 1
+```
+
+Orca resolves its helper scripts relative to `ORCA_HOME` (defaults to where `orca.sh` lives). The target repo provides the queue (`.beads/`), worktrees, and agent logs. If the target repo contains an `ORCA_PROMPT.md`, it is used instead of orca's default.
+
 ## Failure Handling
 
 1. **Agent requests stop** — inspect latest `summary.json`, restart if needed.

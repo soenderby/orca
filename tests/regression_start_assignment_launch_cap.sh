@@ -23,7 +23,7 @@ cat > "${TEST_ROOT}/.beads/issues.jsonl" <<'JSONL'
 {"id":"orca-normal-1","title":"n1","status":"open","dependencies":[]}
 {"id":"orca-normal-2","title":"n2","status":"open","dependencies":[]}
 JSONL
-cat > "${TEST_ROOT}/AGENT_PROMPT.md" <<'EOF'
+cat > "${TEST_ROOT}/ORCA_PROMPT.md" <<'EOF'
 test prompt
 EOF
 

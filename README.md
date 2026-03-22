@@ -107,6 +107,7 @@ agent-logs/
 | `ORCA_BR_GUARD_MODE` | `enforce` | `enforce` or `off` |
 | `ORCA_MODE_ID` | (none) | Mode identifier for metrics |
 | `ORCA_WORK_APPROACH_FILE` | (none) | Approach guidance for metrics |
+| `ORCA_HOME` | (script dir) | Where orca scripts live (for cross-project use) |
 | `SESSION_PREFIX` | `orca-agent` | Tmux session name prefix |
 | `RUN_SLEEP_SECONDS` | `2` | Sleep between iterations |
 
@@ -115,7 +116,7 @@ agent-logs/
 | Document | Purpose |
 |---|---|
 | `OPERATOR_GUIDE.md` | Operating playbook |
-| `AGENT_PROMPT.md` | Agent contract |
+| `ORCA_PROMPT.md` | Agent contract |
 | `docs/design.md` | Design principles |
 | `docs/ecosystem.md` | Tool ecosystem (orca, watch, lore) |
 | `docs/artifact-contract.md` | Output format specification |

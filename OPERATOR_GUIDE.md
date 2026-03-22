@@ -131,4 +131,4 @@ Key knobs (see README.md for full list):
 - `docs/ecosystem.md` — broader tool ecosystem (orca, watch, lore)
 - `docs/artifact-contract.md` — output format specification
 - `docs/decision-log.md` — architecture decisions
-- `AGENT_PROMPT.md` — agent contract
+- `ORCA_PROMPT.md` — agent contract

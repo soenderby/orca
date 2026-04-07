@@ -31,28 +31,27 @@ When assignment mode is `self-select`, complete exactly one issue end-to-end in 
 
 ## Per-Run Queue Workflow
 
-1. Refresh queue view in your worktree:
-   - `"${ORCA_QUEUE_READ_MAIN_PATH}" --fallback worktree --worktree "${WORKTREE}" -- br ready --json >/dev/null`
+1. Refresh queue view:
+   - `"${ORCA_QUEUE_READ_MAIN_PATH}" -- br ready --json >/dev/null`
 2. Pick candidate work:
    - if `Assigned issue id` is non-empty: use that issue only (skip `br ready --json` selection)
-   - if `Assigned issue id` is empty: use `"${ORCA_QUEUE_READ_MAIN_PATH}" --fallback worktree --worktree "${WORKTREE}" -- br ready --json` and select from ready issues
+   - if `Assigned issue id` is empty: use `"${ORCA_QUEUE_READ_MAIN_PATH}" -- br ready --json` and select from ready issues
    - prefer highest-priority ready issues first
    - if you intentionally pick a lower-priority issue, explain why in summary `notes`
-   - inspect with `"${ORCA_QUEUE_READ_MAIN_PATH}" --fallback worktree --worktree "${WORKTREE}" -- br show <id> --json` and `"${ORCA_QUEUE_READ_MAIN_PATH}" --fallback worktree --worktree "${WORKTREE}" -- br dep list <id> --json`
+   - inspect with `"${ORCA_QUEUE_READ_MAIN_PATH}" -- br show <id> --json` and `"${ORCA_QUEUE_READ_MAIN_PATH}" -- br dep list <id> --json`
 3. Claim + publish claim on `main`:
 
 ```bash
 ISSUE_ID="<candidate-id>"
 "${ORCA_QUEUE_WRITE_MAIN_PATH}" \
   --actor "${AGENT_NAME}" \
-  --message "queue: claim ${ISSUE_ID} by ${AGENT_NAME}" \
   -- \
-  br --actor "${AGENT_NAME}" update "${ISSUE_ID}" --claim --json
+  br update "${ISSUE_ID}" --claim --actor "${AGENT_NAME}" --json
 ```
 
 4. If claim publication fails (race), pick another issue or return `no_work`.
-5. Re-import in worktree after successful claim publish:
-   - `"${ORCA_QUEUE_READ_MAIN_PATH}" --fallback worktree --worktree "${WORKTREE}" -- br ready --json >/dev/null`
+5. Re-import after successful claim publish:
+   - `"${ORCA_QUEUE_READ_MAIN_PATH}" -- br ready --json >/dev/null`
 6. Perform all later queue mutations (comments/status/follow-up issues/dependencies/close) through `ORCA_QUEUE_WRITE_MAIN_PATH` too.
 
 ## Execution Workflow

@@ -257,6 +257,61 @@ Follow the plan in `docs/go-rewrite-plan.md`. Phase 1 (pure logic) first, then p
 
 ---
 
+## DL-005 — Deprecate legacy queue-helper prompt invocation forms
+
+- **Date:** 2026-04-07
+- **Status:** Active
+- **Owner:** Operator
+
+### Decision
+
+Deprecate prompt helper invocation forms that are intentionally unsupported by the Go helper commands:
+
+- `queue-read-main --fallback ... --worktree ...`
+- `queue-write-main --message ...`
+- `br --actor ... update ...` (global-flag form) in prompt examples
+
+Use the Go-safe forms instead:
+
+- `queue-read-main -- br <read-command> ...`
+- `queue-write-main --actor <name> -- br <mutation-command> ... --actor <name> ...`
+- `br update ... --actor ...`
+
+### Context
+
+The rewrite has explicit fail-fast decisions for unsupported compatibility flags. Keeping legacy forms in the prompt while helpers fail fast creates operator confusion and inconsistent agent behavior.
+
+### Options considered
+
+1. Preserve old prompt forms and add compatibility shims in Go helpers.
+2. Keep fail-fast helpers and update prompt contract (chosen).
+
+### Why this option
+
+- Aligns prompt behavior with the implemented helper interface.
+- Preserves safety constraints (`--actor` explicitness, payload guardrails).
+- Avoids silent behavior differences between bash and Go helper paths.
+
+### Risks accepted
+
+- Older agent snippets/docs using deprecated forms will fail until updated.
+- This is a controlled prompt contract change and must be communicated.
+
+### Revisit triggers
+
+1. Significant tooling depends on deprecated forms and migration cost is high.
+2. Operators report frequent breakage from legacy snippets.
+
+### Disconfirming evidence
+
+If compatibility breakage outweighs safety/clarity gains, reconsider adding explicit compatibility adapters.
+
+### Next-step implication
+
+Keep `ORCA_PROMPT.md` and Go CLI regression tests aligned. Any further helper interface changes require explicit decision-log entry plus regression updates.
+
+---
+
 ## Entry template
 
 Use this template for new decisions:

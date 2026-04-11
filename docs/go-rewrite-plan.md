@@ -520,7 +520,7 @@ The implementing agent should read these files to understand the behavior being 
 These must hold throughout the rewrite and after cutover:
 
 1. **Artifact contract unchanged.** Session naming, directory structure, summary JSON schema, metrics JSONL schema — all per `docs/artifact-contract.md`. Watch depends on these.
-2. **Agent prompt contract unchanged.** `ORCA_PROMPT.md` and its placeholder substitution must produce the same rendered output.
+2. **Agent prompt placeholder contract unchanged.** `ORCA_PROMPT.md` placeholder substitution semantics must remain stable. Helper invocation forms inside the prompt may evolve only via explicit decision-log entry plus regression coverage.
 3. **Queue safety preserved.** Lock-guarded claim publication, `.beads` source-branch guard, queue mutation routing through helpers.
 4. **CLI interface unchanged.** Same commands, same flags, same exit codes. Scripts and automation that call `orca` must not break.
 5. **Cross-project operation works.** `ORCA_HOME` resolution, prompt fallback (target repo then orca home), helper paths relative to orca home.

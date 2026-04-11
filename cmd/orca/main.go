@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -29,6 +30,7 @@ import (
 	"github.com/soenderby/orca/internal/queue"
 	startpkg "github.com/soenderby/orca/internal/start"
 	statuspkg "github.com/soenderby/orca/internal/status"
+	"github.com/soenderby/orca/internal/tmux"
 	"github.com/soenderby/orca/internal/worktree"
 )
 
@@ -80,13 +82,13 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	case "bootstrap":
 		err = runBootstrap(rest, stdout, stderr)
 	case "stop":
-		err = runScript("stop.sh", rest)
+		err = runStop(rest, stdout, stderr)
 	case "status":
 		err = runStatus(rest, stdout, stderr)
 	case "gc-run-branches", "gc":
-		err = runScript("gc-run-branches.sh", rest)
+		err = runGCRunBranches(rest, stdout, stderr)
 	case "queue-mutate", "queue":
-		err = runScript("queue-mutate.sh", rest)
+		err = runQueueMutate(rest, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "Unknown orca command: %s\n", cmd)
 		printUsage(stderr)
@@ -1118,6 +1120,462 @@ run:
 	}
 }
 
+func runQueueMutate(args []string, stdout io.Writer, _ io.Writer) error {
+	actor := ""
+	helperPath := envOrDefault("ORCA_QUEUE_WRITE_MAIN_PATH", "")
+	helperExplicit := false
+	repo := ""
+	lockHelper := ""
+	scope := ""
+	timeout := ""
+	includeJSON := true
+
+	i := 0
+	for i < len(args) {
+		tok := args[i]
+		switch tok {
+		case "--actor":
+			if i+1 >= len(args) {
+				return errors.New("queue-mutate: --actor requires an argument")
+			}
+			actor = args[i+1]
+			i += 2
+		case "--queue-write-helper":
+			if i+1 >= len(args) {
+				return errors.New("queue-mutate: --queue-write-helper requires an argument")
+			}
+			helperPath = args[i+1]
+			helperExplicit = true
+			i += 2
+		case "--repo":
+			if i+1 >= len(args) {
+				return errors.New("queue-mutate: --repo requires an argument")
+			}
+			repo = args[i+1]
+			i += 2
+		case "--lock-helper":
+			if i+1 >= len(args) {
+				return errors.New("queue-mutate: --lock-helper requires an argument")
+			}
+			lockHelper = args[i+1]
+			i += 2
+		case "--scope":
+			if i+1 >= len(args) {
+				return errors.New("queue-mutate: --scope requires an argument")
+			}
+			scope = args[i+1]
+			i += 2
+		case "--timeout", "--lock-timeout":
+			if i+1 >= len(args) {
+				return errors.New("queue-mutate: --timeout requires an argument")
+			}
+			timeout = args[i+1]
+			i += 2
+		case "--no-json":
+			includeJSON = false
+			i++
+		case "-h", "--help":
+			return errors.New("usage: queue-mutate [--actor NAME] <claim|comment|close|dep-add> ...")
+		default:
+			goto parseMutation
+		}
+	}
+
+parseMutation:
+	if strings.TrimSpace(actor) == "" {
+		return errors.New("queue-mutate: --actor is required")
+	}
+	if i >= len(args) {
+		return errors.New("queue-mutate: mutation command is required")
+	}
+	mutation := args[i]
+	rest := args[i+1:]
+
+	jsonArgs := []string{}
+	if includeJSON {
+		jsonArgs = append(jsonArgs, "--json")
+	}
+
+	buildQueueWriteArgs := func(message string, brArgs []string) []string {
+		qargs := make([]string, 0)
+		if strings.TrimSpace(repo) != "" {
+			qargs = append(qargs, "--repo", repo)
+		}
+		if strings.TrimSpace(scope) != "" {
+			qargs = append(qargs, "--scope", scope)
+		}
+		if strings.TrimSpace(timeout) != "" {
+			qargs = append(qargs, "--timeout", timeout)
+		}
+		if strings.TrimSpace(lockHelper) != "" {
+			qargs = append(qargs, "--lock-helper", lockHelper)
+		}
+		qargs = append(qargs, "--actor", actor)
+		if helperExplicit {
+			qargs = append(qargs, "--message", message)
+		}
+		qargs = append(qargs, "--")
+		qargs = append(qargs, brArgs...)
+		return qargs
+	}
+
+	runMutation := func(message string, brArgs []string) error {
+		qargs := buildQueueWriteArgs(message, brArgs)
+		if helperExplicit {
+			if strings.TrimSpace(helperPath) == "" {
+				return errors.New("queue-mutate: queue-write helper path is empty")
+			}
+			if _, err := os.Stat(helperPath); err != nil {
+				return fmt.Errorf("queue-mutate: queue-write helper is not executable: %s", helperPath)
+			}
+			return runPassthrough(append([]string{helperPath}, qargs...))
+		}
+		if strings.TrimSpace(lockHelper) != "" {
+			return errors.New("queue-mutate: --lock-helper is not supported by go implementation yet")
+		}
+		return runQueueWriteMain(qargs, stdout, io.Discard)
+	}
+
+	switch mutation {
+	case "claim":
+		if len(rest) != 1 {
+			return errors.New("queue-mutate: claim requires: claim <issue-id>")
+		}
+		issueID := rest[0]
+		message := fmt.Sprintf("queue: claim %s by %s", issueID, actor)
+		brArgs := append([]string{"br", "update", issueID, "--claim", "--actor", actor}, jsonArgs...)
+		return runMutation(message, brArgs)
+	case "comment":
+		if len(rest) < 2 {
+			return errors.New("queue-mutate: comment requires: comment <issue-id> (--file <path> | --stdin)")
+		}
+		issueID := rest[0]
+		opts := rest[1:]
+		commentFile := ""
+		readStdin := false
+		for j := 0; j < len(opts); j++ {
+			t := opts[j]
+			switch t {
+			case "--file":
+				if j+1 >= len(opts) {
+					return errors.New("queue-mutate: --file requires an argument")
+				}
+				commentFile = opts[j+1]
+				j++
+			case "--stdin":
+				readStdin = true
+			default:
+				return fmt.Errorf("queue-mutate: unsupported comment option: %s", t)
+			}
+		}
+		if strings.TrimSpace(commentFile) != "" && readStdin {
+			return errors.New("queue-mutate: choose exactly one of --file or --stdin")
+		}
+		tempFile := ""
+		if readStdin {
+			f, err := os.CreateTemp("", "orca-queue-mutate-comment-*.md")
+			if err != nil {
+				return fmt.Errorf("queue-mutate: create temp comment file: %w", err)
+			}
+			if _, err := io.Copy(f, os.Stdin); err != nil {
+				_ = f.Close()
+				_ = os.Remove(f.Name())
+				return fmt.Errorf("queue-mutate: read stdin comment payload: %w", err)
+			}
+			_ = f.Close()
+			tempFile = f.Name()
+			commentFile = tempFile
+			defer os.Remove(tempFile)
+		}
+		if strings.TrimSpace(commentFile) == "" {
+			return errors.New("queue-mutate: comment payload is required via --file or --stdin")
+		}
+		if st, err := os.Stat(commentFile); err != nil || st.IsDir() {
+			return fmt.Errorf("queue-mutate: comment file not found: %s", commentFile)
+		}
+		message := fmt.Sprintf("queue: comment %s by %s", issueID, actor)
+		brArgs := append([]string{"br", "comments", "add", issueID, "--file", commentFile, "--author", actor, "--actor", actor}, jsonArgs...)
+		return runMutation(message, brArgs)
+	case "close":
+		if len(rest) < 1 {
+			return errors.New("queue-mutate: close requires: close <issue-id> [--reason <text>]")
+		}
+		issueID := rest[0]
+		closeOpts := rest[1:]
+		for j := 0; j < len(closeOpts); j++ {
+			t := closeOpts[j]
+			switch t {
+			case "--reason":
+				if j+1 >= len(closeOpts) {
+					return errors.New("queue-mutate: --reason requires an argument")
+				}
+				return errors.New("queue-mutate: --reason is not supported by go implementation yet")
+			default:
+				return fmt.Errorf("queue-mutate: unsupported close option: %s", t)
+			}
+		}
+		message := fmt.Sprintf("queue: close %s by %s", issueID, actor)
+		brArgs := append([]string{"br", "close", issueID, "--actor", actor}, jsonArgs...)
+		return runMutation(message, brArgs)
+	case "dep-add":
+		if len(rest) < 2 {
+			return errors.New("queue-mutate: dep-add requires: dep-add <issue-id> <depends-on-id> [--type <dep-type>]")
+		}
+		issueID := rest[0]
+		dependsOn := rest[1]
+		depType := "blocks"
+		depOpts := rest[2:]
+		for j := 0; j < len(depOpts); j++ {
+			t := depOpts[j]
+			switch t {
+			case "--type":
+				if j+1 >= len(depOpts) {
+					return errors.New("queue-mutate: --type requires an argument")
+				}
+				depType = depOpts[j+1]
+				j++
+			default:
+				return fmt.Errorf("queue-mutate: unsupported dep-add option: %s", t)
+			}
+		}
+		message := fmt.Sprintf("queue: dep-add %s -> %s by %s", issueID, dependsOn, actor)
+		brArgs := append([]string{"br", "dep", "add", issueID, dependsOn, "--type", depType, "--actor", actor}, jsonArgs...)
+		return runMutation(message, brArgs)
+	default:
+		return fmt.Errorf("queue-mutate: unsupported mutation form: %s", mutation)
+	}
+}
+
+func runStop(args []string, stdout io.Writer, _ io.Writer) error {
+	if len(args) > 0 {
+		for _, arg := range args {
+			switch arg {
+			case "-h", "--help":
+				_, _ = io.WriteString(stdout, "Usage:\n  stop\n")
+				return nil
+			default:
+				return fmt.Errorf("stop: unknown option: %s", arg)
+			}
+		}
+	}
+
+	sessionPrefix := envOrDefault("SESSION_PREFIX", "orca-agent")
+	sessions, err := tmux.ListSessions()
+	if err != nil {
+		return fmt.Errorf("stop: list tmux sessions: %w", err)
+	}
+
+	matched := make([]string, 0)
+	for _, s := range sessions {
+		if strings.HasPrefix(s.Name, sessionPrefix+"-") {
+			matched = append(matched, s.Name)
+		}
+	}
+	sort.Strings(matched)
+
+	if len(matched) == 0 {
+		fmt.Fprintf(stdout, "[stop] no sessions with prefix %s\n", sessionPrefix)
+		fmt.Fprintln(stdout, "[stop] done")
+		return nil
+	}
+
+	for _, name := range matched {
+		fmt.Fprintf(stdout, "[stop] killing %s\n", name)
+		if err := tmux.KillSession(name); err != nil {
+			return fmt.Errorf("stop: kill %s: %w", name, err)
+		}
+	}
+	fmt.Fprintln(stdout, "[stop] done")
+	return nil
+}
+
+func runGCRunBranches(args []string, stdout io.Writer, _ io.Writer) error {
+	apply := false
+	baseRef := "main"
+	repoPath := ""
+	sessionPrefix := envOrDefault("SESSION_PREFIX", "orca-agent")
+
+	for i := 0; i < len(args); i++ {
+		tok := args[i]
+		switch tok {
+		case "--apply":
+			apply = true
+		case "--dry-run":
+			apply = false
+		case "--base":
+			if i+1 >= len(args) {
+				return errors.New("gc-run-branches: --base requires an argument")
+			}
+			baseRef = args[i+1]
+			i++
+		case "--repo":
+			if i+1 >= len(args) {
+				return errors.New("gc-run-branches: --repo requires an argument")
+			}
+			repoPath = args[i+1]
+			i++
+		case "-h", "--help":
+			_, _ = io.WriteString(stdout, "Usage:\n  gc-run-branches [--apply] [--base REF] [--repo PATH]\n")
+			return nil
+		default:
+			return fmt.Errorf("gc-run-branches: unknown argument: %s", tok)
+		}
+	}
+
+	if strings.TrimSpace(repoPath) == "" {
+		root, err := gitops.RepoRoot(".")
+		if err != nil {
+			return fmt.Errorf("gc-run-branches: resolve repo root: %w", err)
+		}
+		repoPath = root
+	}
+
+	if _, err := runGitOutput(repoPath, "rev-parse", "--is-inside-work-tree"); err != nil {
+		return fmt.Errorf("gc-run-branches: --repo is not a git worktree: %s", repoPath)
+	}
+	if _, err := runGitOutput(repoPath, "rev-parse", "--verify", "--quiet", baseRef+"^{commit}"); err != nil {
+		return fmt.Errorf("gc-run-branches: base ref does not resolve to a commit: %s", baseRef)
+	}
+
+	branchesRaw, err := runGitOutput(repoPath, "for-each-ref", "--format=%(refname:short)", "refs/heads/swarm/*-run-*")
+	if err != nil {
+		return fmt.Errorf("gc-run-branches: list run branches: %w", err)
+	}
+	runBranches := splitNonEmptyLines(branchesRaw)
+	sort.Strings(runBranches)
+	if len(runBranches) == 0 {
+		fmt.Fprintln(stdout, "[gc-run-branches] no local run branches found (pattern: swarm/*-run-*)")
+		return nil
+	}
+
+	worktreeBranchSet := map[string]struct{}{}
+	if worktreeRaw, err := runGitOutput(repoPath, "worktree", "list", "--porcelain"); err == nil {
+		for _, line := range splitNonEmptyLines(worktreeRaw) {
+			if strings.HasPrefix(line, "branch ") {
+				b := strings.TrimPrefix(line, "branch ")
+				b = strings.TrimPrefix(b, "refs/heads/")
+				if strings.TrimSpace(b) != "" {
+					worktreeBranchSet[b] = struct{}{}
+				}
+			}
+		}
+	}
+
+	activeAgentSet := map[string]struct{}{}
+	activeSessionIDSet := map[string]struct{}{}
+	if _, err := exec.LookPath("tmux"); err == nil {
+		if tmuxRaw, _, err := runCommandWithExitCode("", "tmux", "ls", "-F", "#S"); err == nil {
+			for _, sessionName := range splitNonEmptyLines(tmuxRaw) {
+				prefix := sessionPrefix + "-"
+				if !strings.HasPrefix(sessionName, prefix) {
+					continue
+				}
+				suffix := strings.TrimPrefix(sessionName, prefix)
+				if n, err := strconv.Atoi(suffix); err == nil {
+					activeAgentSet[fmt.Sprintf("agent-%d", n)] = struct{}{}
+					if envLine, _, err := runCommandWithExitCode("", "tmux", "show-environment", "-t", sessionName, "ORCA_SESSION_ID"); err == nil {
+						if strings.HasPrefix(envLine, "ORCA_SESSION_ID=") {
+							sid := strings.TrimPrefix(envLine, "ORCA_SESSION_ID=")
+							if strings.TrimSpace(sid) != "" {
+								activeSessionIDSet[sid] = struct{}{}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	prunable := make([]string, 0)
+	protected := make([]string, 0)
+	unmerged := make([]string, 0)
+
+	for _, branch := range runBranches {
+		if _, ok := worktreeBranchSet[branch]; ok {
+			protected = append(protected, branch+" :: active worktree checkout")
+			continue
+		}
+		sessionProtected := false
+		for sid := range activeSessionIDSet {
+			if strings.Contains(branch, "-"+sid+"-") {
+				protected = append(protected, branch+" :: active session "+sid)
+				sessionProtected = true
+				break
+			}
+		}
+		if sessionProtected {
+			continue
+		}
+		if strings.HasPrefix(branch, "swarm/agent-") {
+			trimmed := strings.TrimPrefix(branch, "swarm/")
+			idx := strings.Index(trimmed, "-run-")
+			if idx > 0 {
+				agentName := trimmed[:idx]
+				if _, ok := activeAgentSet[agentName]; ok {
+					protected = append(protected, branch+" :: active tmux session for "+agentName)
+					continue
+				}
+			}
+		}
+
+		_, code, err := runCommandWithExitCode(repoPath, "git", "merge-base", "--is-ancestor", branch, baseRef)
+		if err == nil && code == 0 {
+			prunable = append(prunable, branch)
+			continue
+		}
+		if code == 1 {
+			unmerged = append(unmerged, branch+" :: not merged into "+baseRef)
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("gc-run-branches: merge-base check for %s: %w", branch, err)
+		}
+	}
+
+	mode := "dry-run"
+	if apply {
+		mode = "apply"
+	}
+	fmt.Fprintf(stdout, "[gc-run-branches] mode: %s\n", mode)
+	fmt.Fprintf(stdout, "[gc-run-branches] repo: %s\n", repoPath)
+	fmt.Fprintf(stdout, "[gc-run-branches] base ref: %s\n", baseRef)
+	fmt.Fprintf(stdout, "[gc-run-branches] scanned: %d\n", len(runBranches))
+	fmt.Fprintf(stdout, "[gc-run-branches] prunable: %d\n", len(prunable))
+	fmt.Fprintf(stdout, "[gc-run-branches] protected: %d\n", len(protected))
+	fmt.Fprintf(stdout, "[gc-run-branches] unmerged: %d\n", len(unmerged))
+
+	if len(prunable) > 0 {
+		if apply {
+			fmt.Fprintln(stdout, "[gc-run-branches] deleting prunable branches:")
+			for _, branch := range prunable {
+				if _, err := runGitOutput(repoPath, "branch", "-d", branch); err != nil {
+					return fmt.Errorf("gc-run-branches: delete %s: %w", branch, err)
+				}
+				fmt.Fprintf(stdout, "  deleted %s\n", branch)
+			}
+		} else {
+			fmt.Fprintln(stdout, "[gc-run-branches] branches that would be deleted:")
+			for _, branch := range prunable {
+				fmt.Fprintf(stdout, "  %s\n", branch)
+			}
+			fmt.Fprintln(stdout, "[gc-run-branches] rerun with --apply to delete.")
+		}
+	}
+	if len(protected) > 0 {
+		fmt.Fprintln(stdout, "[gc-run-branches] protected branches:")
+		for _, line := range protected {
+			fmt.Fprintf(stdout, "  %s\n", line)
+		}
+	}
+	if len(unmerged) > 0 {
+		fmt.Fprintln(stdout, "[gc-run-branches] skipped unmerged branches:")
+		for _, line := range unmerged {
+			fmt.Fprintf(stdout, "  %s\n", line)
+		}
+	}
+	return nil
+}
+
 func runBootstrap(args []string, stdout io.Writer, stderr io.Writer) error {
 	yes := false
 	dryRun := false
@@ -1649,18 +2107,45 @@ func isValidBranchName(branch string) bool {
 	return true
 }
 
-func runGitOutput(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
+func runCommandWithExitCode(dir, name string, args ...string) (string, int, error) {
+	cmd := exec.Command(name, args...)
+	if strings.TrimSpace(dir) != "" {
+		cmd.Dir = dir
+	}
 	out, err := cmd.CombinedOutput()
 	trimmed := strings.TrimSpace(string(out))
-	if err != nil {
-		if trimmed == "" {
-			return "", err
-		}
-		return "", fmt.Errorf("%w: %s", err, trimmed)
+	if err == nil {
+		return trimmed, 0, nil
 	}
-	return trimmed, nil
+	exitCode := 1
+	if ee, ok := err.(*exec.ExitError); ok {
+		exitCode = ee.ExitCode()
+	}
+	if trimmed == "" {
+		return "", exitCode, err
+	}
+	return trimmed, exitCode, fmt.Errorf("%w: %s", err, trimmed)
+}
+
+func splitNonEmptyLines(raw string) []string {
+	parts := strings.Split(raw, "\n")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		v := strings.TrimSpace(p)
+		if v == "" {
+			continue
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+func runGitOutput(dir string, args ...string) (string, error) {
+	out, _, err := runCommandWithExitCode(dir, "git", args...)
+	if err != nil {
+		return "", err
+	}
+	return out, nil
 }
 
 func runGitQuiet(dir string, args ...string) error {

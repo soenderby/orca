@@ -191,5 +191,6 @@ ORCA_BIN="${ORCA_BIN}" "${ROOT}/tests/regression_go_start_validation_modes.sh"
 ORCA_BIN="${ORCA_BIN}" "${ROOT}/tests/regression_go_status_json_contract.sh"
 ORCA_BIN="${ORCA_BIN}" "${ROOT}/tests/regression_go_doctor_json_contract.sh"
 ORCA_BIN="${ORCA_BIN}" "${ROOT}/tests/regression_go_bootstrap_contract.sh"
+ORCA_BIN="${ORCA_BIN}" "${ROOT}/tests/regression_go_remaining_commands.sh"
 
 echo "go-cli subset regression passed"

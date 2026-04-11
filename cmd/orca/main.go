@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	bootstrappkg "github.com/soenderby/orca/internal/bootstrap"
 	"github.com/soenderby/orca/internal/depsanity"
 	doctorpkg "github.com/soenderby/orca/internal/doctor"
 	gitops "github.com/soenderby/orca/internal/git"
@@ -77,7 +78,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	case "doctor":
 		err = runDoctor(rest, stdout, stderr)
 	case "bootstrap":
-		err = runScript("bootstrap.sh", rest)
+		err = runBootstrap(rest, stdout, stderr)
 	case "stop":
 		err = runScript("stop.sh", rest)
 	case "status":
@@ -1115,6 +1116,45 @@ run:
 	default:
 		return fmt.Errorf("queue-write-main: unsupported queue mutation command: %s", strings.Join(cmdArgs, " "))
 	}
+}
+
+func runBootstrap(args []string, stdout io.Writer, stderr io.Writer) error {
+	yes := false
+	dryRun := false
+	for _, arg := range args {
+		switch arg {
+		case "--yes":
+			yes = true
+		case "--dry-run":
+			dryRun = true
+		case "-h", "--help":
+			_, _ = io.WriteString(stdout, "Usage:\n  bootstrap [--yes] [--dry-run]\n")
+			return nil
+		default:
+			return fmt.Errorf("bootstrap: unexpected argument: %s", arg)
+		}
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("[bootstrap] error: resolve cwd: %w", err)
+	}
+	orcaHomePath, err := orcaHome()
+	if err != nil {
+		return fmt.Errorf("[bootstrap] error: %w", err)
+	}
+
+	if err := bootstrappkg.Run(bootstrappkg.Config{
+		Yes:      yes,
+		DryRun:   dryRun,
+		Cwd:      cwd,
+		OrcaHome: orcaHomePath,
+		Stdout:   stdout,
+		Stderr:   stderr,
+	}); err != nil {
+		return fmt.Errorf("[bootstrap] error: %s", err.Error())
+	}
+	return nil
 }
 
 func runDoctor(args []string, stdout io.Writer, stderr io.Writer) error {

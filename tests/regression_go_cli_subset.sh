@@ -187,5 +187,6 @@ grep -F "sync --flush-only" "${REAL_BR_CAPTURE}" >/dev/null
 
 ORCA_BIN="${ORCA_BIN}" "${ROOT}/tests/regression_go_loop_cli_parity.sh"
 ORCA_BIN="${ORCA_BIN}" "${ROOT}/tests/regression_go_start_assignment_launch_cap.sh"
+ORCA_BIN="${ORCA_BIN}" "${ROOT}/tests/regression_go_start_validation_modes.sh"
 
 echo "go-cli subset regression passed"

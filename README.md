@@ -7,9 +7,9 @@ See `docs/ecosystem.md` for how orca fits with watch (operator supervision) and 
 ## Setup
 
 ```bash
-./orca.sh doctor
-./orca.sh bootstrap --yes
-./orca.sh doctor
+./orca doctor
+./orca bootstrap --yes
+./orca doctor
 ```
 
 See `docs/setup.md` for detailed onboarding on Ubuntu/WSL.
@@ -21,13 +21,13 @@ See `docs/setup.md` for detailed onboarding on Ubuntu/WSL.
 br create "Fix the widget parser" --description "..." --priority 1
 
 # Run agents
-./orca.sh start 2 --runs 1
+./orca start 2 --runs 1
 
 # Check status
-./orca.sh status
+./orca status
 
 # Stop
-./orca.sh stop
+./orca stop
 ```
 
 See `OPERATOR_GUIDE.md` for the full operating playbook.
@@ -38,15 +38,15 @@ Orca can operate on any git repo, not just the repo it is installed in. Use `ORC
 
 ```bash
 cd /path/to/other-project
-/path/to/orca/orca.sh doctor
-/path/to/orca/orca.sh start 1 --runs 1
+/path/to/orca/orca doctor
+/path/to/orca/orca start 1 --runs 1
 ```
 
 The target repo needs:
 - A `br` queue workspace (`br init && br config set id.prefix <prefix>`)
 - Optionally, an `ORCA_PROMPT.md` tailored to the project (orca's default is used as fallback)
 
-Orca resolves scripts relative to `ORCA_HOME` (defaults to the directory containing `orca.sh`). The target repo provides worktrees, queue state, and agent logs.
+Orca resolves helper paths relative to `ORCA_HOME` (defaults to the directory containing the `orca` binary). The target repo provides worktrees, queue state, and agent logs.
 
 ## Commands
 
@@ -67,19 +67,19 @@ Helper commands (used by agents and scripts):
 | Command | Purpose |
 |---|---|
 | `with-lock [--scope NAME] [--timeout S] -- <cmd>` | Scoped file lock |
-| `queue-read-main [--fallback MODE] -- <cmd>` | Lock-guarded queue read on main |
+| `queue-read-main -- <cmd>` | Lock-guarded queue read on main |
 | `queue-write-main [--actor NAME] -- <cmd>` | Lock-guarded queue mutation on main |
 | `queue-mutate [--actor NAME] <mutation> [args]` | Safe queue mutation wrapper |
 | `merge-main [--source BRANCH]` | Lock-guarded merge to main |
 
 ## Architecture
 
-- `agent-loop.sh` — per-agent run loop: create branch, render prompt, execute agent, parse summary, append metrics
-- `start.sh` — validates environment, runs planner, launches tmux sessions
-- `plan.sh` — deterministic issue-to-slot assignment using queue labels (`px:exclusive`, `ck:*`, `meta:tracker`)
-- `with-lock.sh` — shared lock primitive; queue mutations and merges both use this
-- `queue-write-main.sh` + `queue-mutate.sh` — lock-guarded queue operations on main
-- `merge-main.sh` — lock-guarded merge with `.beads` source-branch guard
+- `cmd/orca` — Go CLI entrypoint and command dispatch
+- `internal/loop` — per-agent run loop: branch setup, prompt render, summary parse, metrics append
+- `internal/start` — validation, planning, and tmux session launch orchestration
+- `internal/plan` — deterministic issue-to-slot assignment (`px:exclusive`, `ck:*`, `meta:tracker`)
+- `internal/queue` — lock-guarded queue reads/mutations on main
+- `internal/merge` — lock-guarded merge with `.beads` source-branch guard
 
 ## Artifacts
 
@@ -98,8 +98,8 @@ agent-logs/
 
 ## Queue Safety
 
-- All queue mutations go through `queue-write-main.sh` (lock-guarded on main)
-- All merges go through `merge-main.sh` (lock-guarded, rejects `.beads` in source branches)
+- All queue mutations go through `orca queue-write-main` (lock-guarded on main)
+- All merges go through `orca merge-main` (lock-guarded, rejects `.beads` in source branches)
 - Run branches are local transport state; not pushed to origin
 - Both operations share one writer lock scope to serialize main writes
 - Run-time `br` guard shim blocks direct mutation commands in agent worktrees
@@ -123,7 +123,7 @@ agent-logs/
 | `ORCA_BR_GUARD_MODE` | `enforce` | `enforce` or `off` |
 | `ORCA_MODE_ID` | (none) | Mode identifier for metrics |
 | `ORCA_WORK_APPROACH_FILE` | (none) | Approach guidance for metrics |
-| `ORCA_HOME` | (script dir) | Where orca scripts live (for cross-project use) |
+| `ORCA_HOME` | (binary dir) | Where orca binary and compatibility wrappers live (for cross-project use) |
 | `SESSION_PREFIX` | `orca-agent` | Tmux session name prefix |
 | `RUN_SLEEP_SECONDS` | `2` | Sleep between iterations |
 

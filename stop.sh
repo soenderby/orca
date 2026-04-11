@@ -10,22 +10,11 @@ if [[ -z "${ORCA_BIN_CANDIDATE}" ]]; then
     ORCA_BIN_CANDIDATE="${SCRIPT_DIR}/orca-go"
   fi
 fi
-if [[ -x "${ORCA_BIN_CANDIDATE}" ]]; then
-  exec "${ORCA_BIN_CANDIDATE}" stop "$@"
+
+if [[ ! -x "${ORCA_BIN_CANDIDATE}" ]]; then
+  echo "[stop] error: orca binary not found: ${ORCA_BIN_CANDIDATE}" >&2
+  echo "[stop] build it first: go build -o ${SCRIPT_DIR}/orca ./cmd/orca" >&2
+  exit 1
 fi
 
-SESSION_PREFIX="${SESSION_PREFIX:-orca-agent}"
-
-sessions="$(tmux ls -F '#S' 2>/dev/null | grep "^${SESSION_PREFIX}-" || true)"
-
-if [[ -z "${sessions}" ]]; then
-  echo "[stop] no sessions with prefix ${SESSION_PREFIX}"
-else
-  while IFS= read -r s; do
-    [[ -z "${s}" ]] && continue
-    echo "[stop] killing ${s}"
-    tmux kill-session -t "${s}"
-  done <<< "${sessions}"
-fi
-
-echo "[stop] done"
+exec "${ORCA_BIN_CANDIDATE}" stop "$@"

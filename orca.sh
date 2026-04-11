@@ -32,6 +32,18 @@ if [[ $# -gt 0 ]]; then
   shift
 fi
 
+ORCA_GO_BIN="${ORCA_GO_BIN:-${SCRIPT_DIR}/orca-go}"
+if [[ -x "${ORCA_GO_BIN}" ]]; then
+  if [[ -z "${subcommand}" ]]; then
+    exec "${ORCA_GO_BIN}"
+  fi
+  case "${subcommand}" in
+    bootstrap|doctor|start|stop|status|plan|dep-sanity|gc-run-branches|gc|setup-worktrees|setup|with-lock|lock|queue-mutate|queue|merge-main|merge|version|help|-h|--help)
+      exec "${ORCA_GO_BIN}" "${subcommand}" "$@"
+      ;;
+  esac
+fi
+
 case "${subcommand}" in
   start)
     exec "${SCRIPT_DIR}/start.sh" "$@"

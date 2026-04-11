@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ORCA_GO_BIN="${ORCA_GO_BIN:-${SCRIPT_DIR}/orca-go}"
+if [[ -x "${ORCA_GO_BIN}" ]]; then
+  exec "${ORCA_GO_BIN}" status "$@"
+fi
+
 # Minimal batch-engine status: what sessions exist, their state, last result.
 
 ROOT="$(git rev-parse --show-toplevel)"

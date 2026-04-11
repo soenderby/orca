@@ -81,6 +81,7 @@ func TestRun_AssignmentLaunchCapParity(t *testing.T) {
 		DepSanityMode:          "enforce",
 		PromptTemplatePath:     filepath.Join(repo, "ORCA_PROMPT.md"),
 		AgentCommand:           "true",
+		SkipPrereqValidation:   true,
 		SkipWorktreeValidation: true,
 		Stdout:                 &out,
 		Stderr:                 &errOut,
@@ -123,16 +124,17 @@ func TestRun_AssignedContinuousRejected(t *testing.T) {
 	writeFile(t, filepath.Join(repo, "ORCA_PROMPT.md"), "test prompt\n")
 
 	_, err := Run(Config{
-		RepoPath:           repo,
-		Count:              1,
-		AssignmentMode:     "assigned",
-		MaxRuns:            0,
-		NoWorkDrainMode:    "drain",
-		NoWorkRetryLimit:   1,
-		DepSanityMode:      "off",
-		PromptTemplatePath: filepath.Join(repo, "ORCA_PROMPT.md"),
-		Tmux:               newFakeTmux(),
-		Queue:              &fakeQueue{},
+		RepoPath:             repo,
+		Count:                1,
+		AssignmentMode:       "assigned",
+		MaxRuns:              0,
+		NoWorkDrainMode:      "drain",
+		NoWorkRetryLimit:     1,
+		DepSanityMode:        "off",
+		PromptTemplatePath:   filepath.Join(repo, "ORCA_PROMPT.md"),
+		SkipPrereqValidation: true,
+		Tmux:                 newFakeTmux(),
+		Queue:                &fakeQueue{},
 	})
 	if err == nil {
 		t.Fatal("expected assigned mode + continuous to be rejected")

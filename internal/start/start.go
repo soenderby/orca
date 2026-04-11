@@ -46,6 +46,7 @@ type Config struct {
 	BaseRefOverride        string
 	QueueReadFallback      string
 	QueueReadWorktree      string
+	SkipPrereqValidation   bool
 	SkipWorktreeValidation bool
 	OrcaHome               string
 	OrcaBin                string
@@ -168,6 +169,12 @@ func Run(cfg Config) (*Result, error) {
 	}
 	if strings.TrimSpace(cfg.BrGuardPath) == "" {
 		cfg.BrGuardPath = filepath.Join(cfg.OrcaHome, "br-guard.sh")
+	}
+
+	if !cfg.SkipPrereqValidation {
+		if err := validatePrerequisites(cfg); err != nil {
+			return nil, err
+		}
 	}
 
 	promptText, err := os.ReadFile(cfg.PromptTemplatePath)
@@ -654,6 +661,88 @@ func shellJoin(args []string) string {
 		parts = append(parts, fmt.Sprintf("%q", arg))
 	}
 	return strings.Join(parts, " ")
+}
+
+func validatePrerequisites(cfg Config) error {
+	missing := make([]string, 0)
+	for _, cmd := range []string{"git", "tmux", "br", "jq", "flock"} {
+		if _, err := exec.LookPath(cmd); err != nil {
+			missing = append(missing, cmd)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("missing prerequisites: %s", strings.Join(missing, ", "))
+	}
+
+	if err := runCommand("", "br", "--version"); err != nil {
+		return fmt.Errorf("br is installed but not executable: %w", err)
+	}
+
+	agentBin := ""
+	if fields := strings.Fields(cfg.AgentCommand); len(fields) > 0 {
+		agentBin = fields[0]
+	}
+	if strings.TrimSpace(agentBin) != "" {
+		if _, err := exec.LookPath(agentBin); err != nil {
+			return fmt.Errorf("missing agent command binary %q (from AGENT_COMMAND)", agentBin)
+		}
+	}
+
+	beadsPath := filepath.Join(cfg.RepoPath, ".beads")
+	if info, err := os.Stat(beadsPath); err != nil || !info.IsDir() {
+		return fmt.Errorf("missing .beads workspace in repo root: %s", beadsPath)
+	}
+
+	if err := runCommand(cfg.RepoPath, "br", "doctor"); err != nil {
+		return fmt.Errorf("br workspace check failed (br doctor): %w", err)
+	}
+
+	helperChecks := []struct {
+		name string
+		path string
+	}{
+		{name: "ORCA_WITH_LOCK_PATH", path: cfg.WithLockPath},
+		{name: "ORCA_QUEUE_READ_MAIN_PATH", path: cfg.QueueReadMainPath},
+		{name: "ORCA_QUEUE_WRITE_MAIN_PATH", path: cfg.QueueWriteMainPath},
+		{name: "ORCA_MERGE_MAIN_PATH", path: cfg.MergeMainPath},
+		{name: "ORCA_BR_GUARD_PATH", path: cfg.BrGuardPath},
+	}
+	for _, hc := range helperChecks {
+		if !isExecutableFile(hc.path) {
+			return fmt.Errorf("%s must be executable: %s", hc.name, hc.path)
+		}
+	}
+
+	return nil
+}
+
+func runCommand(dir string, name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	if strings.TrimSpace(dir) != "" {
+		cmd.Dir = dir
+	}
+	if out, err := cmd.CombinedOutput(); err != nil {
+		trimmed := strings.TrimSpace(string(out))
+		if trimmed == "" {
+			return err
+		}
+		return fmt.Errorf("%w: %s", err, trimmed)
+	}
+	return nil
+}
+
+func isExecutableFile(path string) bool {
+	if strings.TrimSpace(path) == "" {
+		return false
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	if info.IsDir() {
+		return false
+	}
+	return info.Mode()&0o111 != 0
 }
 
 func boolToInt(v bool) int {

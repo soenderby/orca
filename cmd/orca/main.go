@@ -26,6 +26,7 @@ import (
 	"github.com/soenderby/orca/internal/prompt"
 	"github.com/soenderby/orca/internal/queue"
 	startpkg "github.com/soenderby/orca/internal/start"
+	statuspkg "github.com/soenderby/orca/internal/status"
 	"github.com/soenderby/orca/internal/worktree"
 )
 
@@ -79,7 +80,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	case "stop":
 		err = runScript("stop.sh", rest)
 	case "status":
-		err = runScript("status.sh", rest)
+		err = runStatus(rest, stdout, stderr)
 	case "gc-run-branches", "gc":
 		err = runScript("gc-run-branches.sh", rest)
 	case "queue-mutate", "queue":
@@ -1113,6 +1114,47 @@ run:
 	default:
 		return fmt.Errorf("queue-write-main: unsupported queue mutation command: %s", strings.Join(cmdArgs, " "))
 	}
+}
+
+func runStatus(args []string, stdout io.Writer, stderr io.Writer) error {
+	jsonOut := false
+	for _, arg := range args {
+		switch arg {
+		case "--json":
+			jsonOut = true
+		case "-h", "--help":
+			_, _ = io.WriteString(stdout, "Usage:\n  status [--json]\n")
+			return nil
+		default:
+			return fmt.Errorf("status: unknown option: %s", arg)
+		}
+	}
+
+	repoRoot, err := gitops.RepoRoot(".")
+	if err != nil {
+		return fmt.Errorf("status: resolve repo root: %w", err)
+	}
+
+	out, err := statuspkg.Collect(statuspkg.Config{
+		RepoPath:      repoRoot,
+		SessionPrefix: envOrDefault("SESSION_PREFIX", "orca-agent"),
+	})
+	if err != nil {
+		return fmt.Errorf("status: %w", err)
+	}
+
+	if jsonOut {
+		data, err := json.Marshal(out)
+		if err != nil {
+			return fmt.Errorf("status: marshal json: %w", err)
+		}
+		_, _ = stdout.Write(append(data, '\n'))
+		return nil
+	}
+
+	_, _ = io.WriteString(stdout, statuspkg.RenderHuman(out))
+	_ = stderr
+	return nil
 }
 
 func runScript(script string, args []string) error {

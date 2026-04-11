@@ -203,22 +203,11 @@ func Run(cfg Config) model.DoctorResult {
 	}
 
 	helper := func(path, id, title string) {
-		if info, err := os.Stat(path); err != nil {
-			r.add(failCheck(id, title, "helper", true,
-				"Missing helper script: "+path,
-				"Restore the helper script at the expected path.",
-				"ls -l "+repoRoot,
-			))
-			return
-		} else if info.IsDir() {
-			r.add(failCheck(id, title, "helper", true,
-				"Helper path is a directory, expected executable file: "+path,
-				"Restore the helper script at the expected path.",
-				"ls -l "+repoRoot,
-			))
-			return
-		}
-		if info, _ := os.Stat(path); info.Mode()&0o111 == 0 {
+		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			if info.Mode()&0o111 != 0 {
+				r.add(passCheck(id, title, "helper", "Helper is present and executable: "+path))
+				return
+			}
 			r.add(failCheck(id, title, "helper", true,
 				"Helper exists but is not executable: "+path,
 				"Mark helper as executable.",
@@ -226,7 +215,24 @@ func Run(cfg Config) model.DoctorResult {
 			))
 			return
 		}
-		r.add(passCheck(id, title, "helper", "Helper is present and executable: "+path))
+
+		orcaGo := filepath.Join(cfg.OrcaHome, "orca-go")
+		if info, err := os.Stat(orcaGo); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+			r.add(passCheck(id, title, "helper", "Legacy helper script missing; using go subcommand via "+orcaGo))
+			return
+		}
+		orcaBin := filepath.Join(cfg.OrcaHome, "orca")
+		if info, err := os.Stat(orcaBin); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+			r.add(passCheck(id, title, "helper", "Legacy helper script missing; using go subcommand via "+orcaBin))
+			return
+		}
+
+		r.add(failCheck(id, title, "helper", true,
+			"Missing helper script: "+path,
+			"Restore the helper script at the expected path or install an executable orca-go/orca binary in ORCA_HOME.",
+			"ls -l "+repoRoot,
+			"ls -l "+cfg.OrcaHome,
+		))
 	}
 
 	helper(filepath.Join(cfg.OrcaHome, "with-lock.sh"), "helper.with_lock_executable", "with-lock helper is executable")

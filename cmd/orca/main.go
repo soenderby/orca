@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/soenderby/orca/internal/depsanity"
+	doctorpkg "github.com/soenderby/orca/internal/doctor"
 	gitops "github.com/soenderby/orca/internal/git"
 	"github.com/soenderby/orca/internal/lock"
 	"github.com/soenderby/orca/internal/loop"
@@ -74,7 +75,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	case "start":
 		err = runStart(rest, stdout, stderr)
 	case "doctor":
-		err = runScript("doctor.sh", rest)
+		err = runDoctor(rest, stdout, stderr)
 	case "bootstrap":
 		err = runScript("bootstrap.sh", rest)
 	case "stop":
@@ -1114,6 +1115,46 @@ run:
 	default:
 		return fmt.Errorf("queue-write-main: unsupported queue mutation command: %s", strings.Join(cmdArgs, " "))
 	}
+}
+
+func runDoctor(args []string, stdout io.Writer, stderr io.Writer) error {
+	jsonOut := false
+	for _, arg := range args {
+		switch arg {
+		case "--json":
+			jsonOut = true
+		case "-h", "--help":
+			_, _ = io.WriteString(stdout, "Usage:\n  doctor [--json]\n")
+			return nil
+		default:
+			return fmt.Errorf("doctor: unexpected argument: %s", arg)
+		}
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("doctor: resolve cwd: %w", err)
+	}
+	orcaHomePath, err := orcaHome()
+	if err != nil {
+		return err
+	}
+
+	res := doctorpkg.Run(doctorpkg.Config{Cwd: cwd, OrcaHome: orcaHomePath})
+	if jsonOut {
+		data, err := json.Marshal(res)
+		if err != nil {
+			return fmt.Errorf("doctor: marshal json: %w", err)
+		}
+		_, _ = stdout.Write(append(data, '\n'))
+	} else {
+		_, _ = io.WriteString(stdout, doctorpkg.RenderHuman(res))
+	}
+	_ = stderr
+	if !res.OK {
+		return &exitCodeError{Code: 1}
+	}
+	return nil
 }
 
 func runStatus(args []string, stdout io.Writer, stderr io.Writer) error {

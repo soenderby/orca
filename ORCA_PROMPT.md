@@ -2,10 +2,7 @@ You are __AGENT_NAME__, running one Orca loop iteration.
 
 Repository worktree: __WORKTREE__
 Primary repo path: __PRIMARY_REPO__
-Lock helper path: __WITH_LOCK_PATH__
-Queue-read helper path: __QUEUE_READ_MAIN_PATH__
-Queue-write helper path: __QUEUE_WRITE_MAIN_PATH__
-Merge helper path: __MERGE_MAIN_PATH__
+Orca binary path: __ORCA_BIN_PATH__
 Assignment mode: __ASSIGNMENT_MODE__
 Assigned issue id: __ASSIGNED_ISSUE_ID__
 Run summary JSON path: __SUMMARY_JSON_PATH__
@@ -18,32 +15,32 @@ When assignment mode is `self-select`, complete exactly one issue end-to-end in 
 1. One issue per run.
 2. Claim and publish claim before coding.
 3. Use `br` for queue state changes (never manually edit `.beads/issues.jsonl`).
-4. Use `ORCA_QUEUE_WRITE_MAIN_PATH` for queue updates and `ORCA_MERGE_MAIN_PATH` for integration.
+4. Use `ORCA_BIN_PATH queue-write-main` for queue updates and `ORCA_BIN_PATH merge-main` for integration.
 5. Do not push run branches to origin during normal local operation.
 6. Always write run summary JSON.
 
 ## Queue Discipline
 
-1. Publish claims before coding via `ORCA_QUEUE_WRITE_MAIN_PATH` on `ORCA_PRIMARY_REPO/main`.
-2. Queue mutations go through `ORCA_QUEUE_WRITE_MAIN_PATH`.
+1. Publish claims before coding via `ORCA_BIN_PATH queue-write-main` on `ORCA_PRIMARY_REPO/main`.
+2. Queue mutations go through `ORCA_BIN_PATH queue-write-main`.
 3. Keep `.beads` changes out of run branches.
 4. Do not use `--no-auto-import`, `--no-auto-flush`, or `--allow-stale` in normal runs.
 
 ## Per-Run Queue Workflow
 
 1. Refresh queue view:
-   - `"${ORCA_QUEUE_READ_MAIN_PATH}" -- br ready --json >/dev/null`
+   - `"${ORCA_BIN_PATH}" queue-read-main -- br ready --json >/dev/null`
 2. Pick candidate work:
    - if `Assigned issue id` is non-empty: use that issue only (skip `br ready --json` selection)
-   - if `Assigned issue id` is empty: use `"${ORCA_QUEUE_READ_MAIN_PATH}" -- br ready --json` and select from ready issues
+   - if `Assigned issue id` is empty: use `"${ORCA_BIN_PATH}" queue-read-main -- br ready --json` and select from ready issues
    - prefer highest-priority ready issues first
    - if you intentionally pick a lower-priority issue, explain why in summary `notes`
-   - inspect with `"${ORCA_QUEUE_READ_MAIN_PATH}" -- br show <id> --json` and `"${ORCA_QUEUE_READ_MAIN_PATH}" -- br dep list <id> --json`
+   - inspect with `"${ORCA_BIN_PATH}" queue-read-main -- br show <id> --json` and `"${ORCA_BIN_PATH}" queue-read-main -- br dep list <id> --json`
 3. Claim + publish claim on `main`:
 
 ```bash
 ISSUE_ID="<candidate-id>"
-"${ORCA_QUEUE_WRITE_MAIN_PATH}" \
+"${ORCA_BIN_PATH}" queue-write-main \
   --actor "${AGENT_NAME}" \
   -- \
   br update "${ISSUE_ID}" --claim --actor "${AGENT_NAME}" --json
@@ -51,8 +48,8 @@ ISSUE_ID="<candidate-id>"
 
 4. If claim publication fails (race), pick another issue or return `no_work`.
 5. Re-import after successful claim publish:
-   - `"${ORCA_QUEUE_READ_MAIN_PATH}" -- br ready --json >/dev/null`
-6. Perform all later queue mutations (comments/status/follow-up issues/dependencies/close) through `ORCA_QUEUE_WRITE_MAIN_PATH` too.
+   - `"${ORCA_BIN_PATH}" queue-read-main -- br ready --json >/dev/null`
+6. Perform all later queue mutations (comments/status/follow-up issues/dependencies/close) through `ORCA_BIN_PATH queue-write-main` too.
 
 ## Execution Workflow
 
@@ -63,11 +60,11 @@ ISSUE_ID="<candidate-id>"
 2. Restate acceptance criteria from `br show <id> --json`.
 3. Implement minimal, scoped changes for the claimed issue.
 4. Run relevant validation for your change.
-5. Update issue state and notes via `ORCA_QUEUE_WRITE_MAIN_PATH`:
+5. Update issue state and notes via `ORCA_BIN_PATH queue-write-main`:
    - use `br comments add <id> "..."` for meaningful progress/blocker notes
    - set state (`in_progress`, `blocked`, `closed`) intentionally
-6. Capture newly discovered work as follow-up issues via `ORCA_QUEUE_WRITE_MAIN_PATH`.
-7. Merge/push with `ORCA_MERGE_MAIN_PATH` (pattern below).
+6. Capture newly discovered work as follow-up issues via `ORCA_BIN_PATH queue-write-main`.
+7. Merge/push with `ORCA_BIN_PATH merge-main` (pattern below).
 8. Before finishing run, ensure `.beads/` is not left dirty in the run branch (`git status --short -- .beads/`).
 9. Write run summary JSON to `__SUMMARY_JSON_PATH__`.
 
@@ -75,7 +72,7 @@ ISSUE_ID="<candidate-id>"
 
 When additional work is discovered:
 
-1. Create follow-up issues via `ORCA_QUEUE_WRITE_MAIN_PATH` (never by editing `.beads` directly).
+1. Create follow-up issues via `ORCA_BIN_PATH queue-write-main` (never by editing `.beads` directly).
 2. If it blocks current issue completion:
    - create a blocking issue
    - add dependency (`current -> blocker`) via `br dep add`
@@ -88,7 +85,7 @@ When additional work is discovered:
 Use this pattern for shared-target writes:
 
 ```bash
-"${ORCA_MERGE_MAIN_PATH}" --source "$(git branch --show-current)"
+"${ORCA_BIN_PATH}" merge-main --source "$(git branch --show-current)"
 ```
 
 Behavior enforced by helper:
@@ -129,7 +126,7 @@ Rules:
 
 1. Issue claimed or explicit `no_work`.
 2. Code/tests/docs completed for claimed scope, or blocker documented.
-3. Queue mutations executed via `ORCA_QUEUE_WRITE_MAIN_PATH` (not via run-branch `.beads` edits).
+3. Queue mutations executed via `ORCA_BIN_PATH queue-write-main` (not via run-branch `.beads` edits).
 4. Follow-up issues recorded when applicable.
 5. `.beads/` not left dirty in run branch.
 6. Summary JSON written and complete.

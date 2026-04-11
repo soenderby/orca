@@ -29,6 +29,7 @@ var knownPlaceholders = map[string]struct{}{
 	"__ORCA_QUEUE_WRITE_MAIN_PATH__": {},
 	"__MERGE_MAIN_PATH__":            {},
 	"__ORCA_MERGE_MAIN_PATH__":       {},
+	"__ORCA_BIN_PATH__":              {},
 }
 
 // ValidateTemplate checks that a prompt template only uses supported

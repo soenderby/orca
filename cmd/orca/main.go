@@ -626,6 +626,14 @@ func runLoopRun(args []string, _ io.Writer, stderr io.Writer) error {
 		*brGuardPath = filepath.Join(*orcaHomePath, "br-guard.sh")
 	}
 
+	orcaBinPath := ""
+	if exe, err := os.Executable(); err == nil {
+		orcaBinPath = exe
+	}
+	if strings.TrimSpace(orcaBinPath) == "" {
+		orcaBinPath = "orca-go"
+	}
+
 	harnessVersion := ""
 	if v, err := gitops.Describe(*orcaHomePath); err == nil {
 		harnessVersion = v
@@ -683,6 +691,7 @@ func runLoopRun(args []string, _ io.Writer, stderr io.Writer) error {
 		Executor: loop.ExecutorFunc(func(inv loop.RunInvocation) (loop.ExecutionResult, error) {
 			vars := map[string]string{
 				"AGENT_NAME":                 *agentName,
+				"ORCA_BIN_PATH":              orcaBinPath,
 				"ISSUE_ID":                   issuePlaceholder(*assignedIssueID),
 				"ASSIGNED_ISSUE_ID":          *assignedIssueID,
 				"ASSIGNMENT_MODE":            *assignmentMode,
@@ -733,7 +742,7 @@ func runLoopRun(args []string, _ io.Writer, stderr io.Writer) error {
 			cmd.Stdin = strings.NewReader(renderedPrompt)
 			cmd.Stdout = logFile
 			cmd.Stderr = logFile
-			cmd.Env = buildLoopEnv(inv, *agentName, *sessionID, *worktreePath, *assignmentMode, *assignedIssueID, *primaryRepo, *withLockPath, *queueReadMainPath, *queueWriteMainPath, *mergeMainPath, *brGuardPath, *lockScope, *lockTimeoutSeconds, guardBinDir)
+			cmd.Env = buildLoopEnv(inv, *agentName, *sessionID, *worktreePath, orcaBinPath, *assignmentMode, *assignedIssueID, *primaryRepo, *withLockPath, *queueReadMainPath, *queueWriteMainPath, *mergeMainPath, *brGuardPath, *lockScope, *lockTimeoutSeconds, guardBinDir)
 
 			if err := cmd.Run(); err != nil {
 				if ee, ok := err.(*exec.ExitError); ok {
@@ -2158,6 +2167,7 @@ func buildLoopEnv(
 	agentName string,
 	sessionID string,
 	worktreePath string,
+	orcaBinPath string,
 	assignmentMode string,
 	assignedIssueID string,
 	primaryRepo string,
@@ -2175,6 +2185,7 @@ func buildLoopEnv(
 		"AGENT_NAME="+agentName,
 		"AGENT_SESSION_ID="+sessionID,
 		"WORKTREE="+worktreePath,
+		"ORCA_BIN_PATH="+orcaBinPath,
 		"ORCA_RUN_SUMMARY_PATH="+inv.Paths.SummaryJSON,
 		"ORCA_RUN_LOG_PATH="+inv.Paths.RunLog,
 		"ORCA_RUN_NUMBER="+strconv.Itoa(inv.RunNumber),

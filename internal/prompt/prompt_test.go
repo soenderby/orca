@@ -6,7 +6,7 @@ import (
 )
 
 func TestRender_AllPlaceholdersReplaced(t *testing.T) {
-	template := "agent=__AGENT_NAME__ worktree=__WORKTREE__ repo=__PRIMARY_REPO__ lock=__WITH_LOCK_PATH__ qread=__QUEUE_READ_MAIN_PATH__ qwrite=__QUEUE_WRITE_MAIN_PATH__ merge=__MERGE_MAIN_PATH__ mode=__ASSIGNMENT_MODE__ issue=__ASSIGNED_ISSUE_ID__ summary=__SUMMARY_JSON_PATH__"
+	template := "agent=__AGENT_NAME__ worktree=__WORKTREE__ repo=__PRIMARY_REPO__ lock=__WITH_LOCK_PATH__ qread=__QUEUE_READ_MAIN_PATH__ qwrite=__QUEUE_WRITE_MAIN_PATH__ merge=__MERGE_MAIN_PATH__ bin=__ORCA_BIN_PATH__ mode=__ASSIGNMENT_MODE__ issue=__ASSIGNED_ISSUE_ID__ summary=__SUMMARY_JSON_PATH__"
 	values := map[string]string{
 		"AGENT_NAME":            "agent-1",
 		"WORKTREE":              "/tmp/wt",
@@ -15,6 +15,7 @@ func TestRender_AllPlaceholdersReplaced(t *testing.T) {
 		"QUEUE_READ_MAIN_PATH":  "/tmp/queue-read-main.sh",
 		"QUEUE_WRITE_MAIN_PATH": "/tmp/queue-write-main.sh",
 		"MERGE_MAIN_PATH":       "/tmp/merge-main.sh",
+		"ORCA_BIN_PATH":         "/tmp/orca-go",
 		"ASSIGNMENT_MODE":       "assigned",
 		"ASSIGNED_ISSUE_ID":     "orca-1",
 		"SUMMARY_JSON_PATH":     "/tmp/summary.json",
@@ -25,7 +26,7 @@ func TestRender_AllPlaceholdersReplaced(t *testing.T) {
 		t.Fatalf("render returned error: %v", err)
 	}
 
-	want := "agent=agent-1 worktree=/tmp/wt repo=/tmp/repo lock=/tmp/with-lock.sh qread=/tmp/queue-read-main.sh qwrite=/tmp/queue-write-main.sh merge=/tmp/merge-main.sh mode=assigned issue=orca-1 summary=/tmp/summary.json"
+	want := "agent=agent-1 worktree=/tmp/wt repo=/tmp/repo lock=/tmp/with-lock.sh qread=/tmp/queue-read-main.sh qwrite=/tmp/queue-write-main.sh merge=/tmp/merge-main.sh bin=/tmp/orca-go mode=assigned issue=orca-1 summary=/tmp/summary.json"
 	if got != want {
 		t.Fatalf("render mismatch\nwant: %q\n got: %q", want, got)
 	}

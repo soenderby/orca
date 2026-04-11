@@ -128,6 +128,7 @@ func TestBuildLoopEnv_IncludesPromptExpectedAgentVars(t *testing.T) {
 		"agent-7",
 		"session-xyz",
 		"/tmp/worktree",
+		"/tmp/orca-go",
 		"self-select",
 		"",
 		"/tmp/repo",
@@ -149,6 +150,9 @@ func TestBuildLoopEnv_IncludesPromptExpectedAgentVars(t *testing.T) {
 	}
 	if !containsEnvKV(env, "WORKTREE", "/tmp/worktree") {
 		t.Fatalf("missing WORKTREE in env: %#v", env)
+	}
+	if !containsEnvKV(env, "ORCA_BIN_PATH", "/tmp/orca-go") {
+		t.Fatalf("missing ORCA_BIN_PATH in env: %#v", env)
 	}
 }
 

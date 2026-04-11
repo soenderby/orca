@@ -74,7 +74,6 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	case "loop-run":
 		err = runLoopRun(rest, stdout, stderr)
 
-	// Unmigrated commands are delegated to existing bash scripts for now.
 	case "start":
 		err = runStart(rest, stdout, stderr)
 	case "doctor":

@@ -2,9 +2,16 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ORCA_GO_BIN="${ORCA_GO_BIN:-${SCRIPT_DIR}/orca-go}"
-if [[ -x "${ORCA_GO_BIN}" ]]; then
-  exec "${ORCA_GO_BIN}" status "$@"
+ORCA_BIN_CANDIDATE="${ORCA_BIN:-${ORCA_GO_BIN:-}}"
+if [[ -z "${ORCA_BIN_CANDIDATE}" ]]; then
+  if [[ -x "${SCRIPT_DIR}/orca" ]]; then
+    ORCA_BIN_CANDIDATE="${SCRIPT_DIR}/orca"
+  else
+    ORCA_BIN_CANDIDATE="${SCRIPT_DIR}/orca-go"
+  fi
+fi
+if [[ -x "${ORCA_BIN_CANDIDATE}" ]]; then
+  exec "${ORCA_BIN_CANDIDATE}" status "$@"
 fi
 
 # Minimal batch-engine status: what sessions exist, their state, last result.

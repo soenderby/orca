@@ -2,11 +2,19 @@
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
-ORCA_BIN="${ORCA_BIN:-${ROOT}/orca-go}"
+if [[ -z "${ORCA_BIN:-}" ]]; then
+  ORCA_BIN="${ROOT}/orca"
+fi
+if [[ "${ORCA_BIN}" != /* ]]; then
+  ORCA_BIN="$(cd "$(dirname "${ORCA_BIN}")" && pwd)/$(basename "${ORCA_BIN}")"
+fi
 
 if [[ ! -x "${ORCA_BIN}" ]]; then
   echo "building go binary: ${ORCA_BIN}" >&2
   (cd "${ROOT}" && go build -o "${ORCA_BIN}" ./cmd/orca)
+fi
+if [[ ! -x "${ROOT}/orca-go" && -x "${ROOT}/orca" ]]; then
+  cp -f "${ROOT}/orca" "${ROOT}/orca-go"
 fi
 
 scripts=(

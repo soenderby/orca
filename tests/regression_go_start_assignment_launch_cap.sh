@@ -2,11 +2,20 @@
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
-ORCA_BIN="${ORCA_BIN:-${ROOT}/orca-go}"
+if [[ -z "${ORCA_BIN:-}" ]]; then
+  if [[ -x "${ROOT}/orca" ]]; then
+    ORCA_BIN="${ROOT}/orca"
+  else
+    ORCA_BIN="${ROOT}/orca-go"
+  fi
+fi
+if [[ "${ORCA_BIN}" != /* ]]; then
+  ORCA_BIN="$(cd "$(dirname "${ORCA_BIN}")" && pwd)/$(basename "${ORCA_BIN}")"
+fi
 
 if [[ ! -x "${ORCA_BIN}" ]]; then
   echo "orca binary not found or not executable: ${ORCA_BIN}" >&2
-  echo "build it first: go build -o orca-go ./cmd/orca/" >&2
+  echo "build it first: go build -o orca ./cmd/orca/" >&2
   exit 1
 fi
 

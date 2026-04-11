@@ -34,7 +34,8 @@ go test ./...
 
 if [[ -d "./cmd/orca" ]]; then
   echo "=== build ==="
-  go build -o orca-go ./cmd/orca/
+  go build -o orca ./cmd/orca/
+  cp -f orca orca-go
 fi
 
 echo ""

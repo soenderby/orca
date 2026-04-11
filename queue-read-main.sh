@@ -2,9 +2,27 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ORCA_GO_BIN="${ORCA_GO_BIN:-${SCRIPT_DIR}/orca-go}"
-if [[ -x "${ORCA_GO_BIN}" ]]; then
-  exec "${ORCA_GO_BIN}" queue-read-main "$@"
+ORCA_BIN_CANDIDATE="${ORCA_BIN:-${ORCA_GO_BIN:-}}"
+if [[ -z "${ORCA_BIN_CANDIDATE}" ]]; then
+  if [[ -x "${SCRIPT_DIR}/orca" ]]; then
+    ORCA_BIN_CANDIDATE="${SCRIPT_DIR}/orca"
+  else
+    ORCA_BIN_CANDIDATE="${SCRIPT_DIR}/orca-go"
+  fi
+fi
+if [[ -x "${ORCA_BIN_CANDIDATE}" ]]; then
+  use_go=1
+  for arg in "$@"; do
+    case "${arg}" in
+      --lock-helper|--fallback|--worktree)
+        use_go=0
+        break
+        ;;
+    esac
+  done
+  if [[ "${use_go}" -eq 1 ]]; then
+    exec "${ORCA_BIN_CANDIDATE}" queue-read-main "$@"
+  fi
 fi
 POLICY_PATH="${ORCA_BR_GUARD_POLICY_PATH:-${SCRIPT_DIR}/lib/br-command-policy.sh}"
 

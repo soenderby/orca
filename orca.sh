@@ -32,14 +32,21 @@ if [[ $# -gt 0 ]]; then
   shift
 fi
 
-ORCA_GO_BIN="${ORCA_GO_BIN:-${SCRIPT_DIR}/orca-go}"
-if [[ -x "${ORCA_GO_BIN}" ]]; then
+ORCA_BIN_CANDIDATE="${ORCA_BIN:-${ORCA_GO_BIN:-}}"
+if [[ -z "${ORCA_BIN_CANDIDATE}" ]]; then
+  if [[ -x "${SCRIPT_DIR}/orca" ]]; then
+    ORCA_BIN_CANDIDATE="${SCRIPT_DIR}/orca"
+  else
+    ORCA_BIN_CANDIDATE="${SCRIPT_DIR}/orca-go"
+  fi
+fi
+if [[ -x "${ORCA_BIN_CANDIDATE}" ]]; then
   if [[ -z "${subcommand}" ]]; then
-    exec "${ORCA_GO_BIN}"
+    exec "${ORCA_BIN_CANDIDATE}"
   fi
   case "${subcommand}" in
-    bootstrap|doctor|start|stop|status|plan|dep-sanity|gc-run-branches|gc|setup-worktrees|setup|with-lock|lock|queue-mutate|queue|merge-main|merge|version|help|-h|--help)
-      exec "${ORCA_GO_BIN}" "${subcommand}" "$@"
+    bootstrap|doctor|start|stop|status|plan|dep-sanity|gc-run-branches|gc|setup-worktrees|setup|with-lock|lock|queue-read-main|queue-read|queue-write-main|queue-write|queue-mutate|queue|merge-main|merge|loop-run|version|help|-h|--help)
+      exec "${ORCA_BIN_CANDIDATE}" "${subcommand}" "$@"
       ;;
   esac
 fi
